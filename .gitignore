@@ -1,0 +1,6 @@
+/Data/
+/.vscode/
+
+go.sum
+
+*.sql
