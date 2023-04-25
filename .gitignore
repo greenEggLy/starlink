@@ -1,6 +1,6 @@
 /Data/
 /.vscode/
 
-go.sum
+# go.sum
 
 *.sql

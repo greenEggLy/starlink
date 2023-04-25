@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package satsys;
+
+option go_package = "starlink/pb";
+
+service SatSys {
+    rpc GetSatellites(SearchContext) returns (Satellite) {}
+	rpc UpdateSystem(UpdateContext) returns(UpdateResponse) {}
+}
+
+
+message UpdateResponse {
+	string message = 1;
+}
+
+message UpdateContext{
+	string sys_name = 1;
+}
+
+message SearchContext {
+    string sys_name = 1;
+    string sat_name = 2;
+}
+
+message Satellite {
+    string name = 1;
+    string num_sat = 2;
+    string inter = 3;
+    string year = 4;
+    string day = 5;
+	string first_motion = 6;
+	string second_motion = 7;
+	string drag = 8;
+	string number = 9;
+	string incl = 10;
+	string r_a = 11;
+    string eccentricity = 12;
+	string arg_per = 13;
+	string anomaly = 14;
+	string motion = 15;
+	string epoch = 16;
+}
+
+message Satellite_System {
+	string name = 1;
+}
