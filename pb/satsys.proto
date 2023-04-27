@@ -4,11 +4,21 @@ package satsys;
 
 option go_package = "starlink/pb";
 
+
 service SatSys {
     rpc GetSatellites(SearchContext) returns (Satellite) {}
 	rpc UpdateSystem(UpdateContext) returns(UpdateResponse) {}
+	rpc CmdGetSystem(CmdRequest) returns(CmdResponse){}
 }
 
+
+message CmdRequest{
+	string cmd = 1;
+}
+
+message CmdResponse{
+	string message = 1;
+}
 
 message UpdateResponse {
 	string message = 1;
@@ -43,5 +53,6 @@ message Satellite {
 }
 
 message Satellite_System {
-	string name = 1;
+	string id = 1;
+	string name = 2;
 }

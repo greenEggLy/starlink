@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion7
 const (
 	SatSys_GetSatellites_FullMethodName = "/satsys.SatSys/GetSatellites"
 	SatSys_UpdateSystem_FullMethodName  = "/satsys.SatSys/UpdateSystem"
+	SatSys_CmdGetSystem_FullMethodName  = "/satsys.SatSys/CmdGetSystem"
 )
 
 // SatSysClient is the client API for SatSys service.
@@ -29,6 +30,7 @@ const (
 type SatSysClient interface {
 	GetSatellites(ctx context.Context, in *SearchContext, opts ...grpc.CallOption) (*Satellite, error)
 	UpdateSystem(ctx context.Context, in *UpdateContext, opts ...grpc.CallOption) (*UpdateResponse, error)
+	CmdGetSystem(ctx context.Context, in *CmdRequest, opts ...grpc.CallOption) (*CmdResponse, error)
 }
 
 type satSysClient struct {
@@ -57,12 +59,22 @@ func (c *satSysClient) UpdateSystem(ctx context.Context, in *UpdateContext, opts
 	return out, nil
 }
 
+func (c *satSysClient) CmdGetSystem(ctx context.Context, in *CmdRequest, opts ...grpc.CallOption) (*CmdResponse, error) {
+	out := new(CmdResponse)
+	err := c.cc.Invoke(ctx, SatSys_CmdGetSystem_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SatSysServer is the server API for SatSys service.
 // All implementations must embed UnimplementedSatSysServer
 // for forward compatibility
 type SatSysServer interface {
 	GetSatellites(context.Context, *SearchContext) (*Satellite, error)
 	UpdateSystem(context.Context, *UpdateContext) (*UpdateResponse, error)
+	CmdGetSystem(context.Context, *CmdRequest) (*CmdResponse, error)
 	mustEmbedUnimplementedSatSysServer()
 }
 
@@ -75,6 +87,9 @@ func (UnimplementedSatSysServer) GetSatellites(context.Context, *SearchContext) 
 }
 func (UnimplementedSatSysServer) UpdateSystem(context.Context, *UpdateContext) (*UpdateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateSystem not implemented")
+}
+func (UnimplementedSatSysServer) CmdGetSystem(context.Context, *CmdRequest) (*CmdResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CmdGetSystem not implemented")
 }
 func (UnimplementedSatSysServer) mustEmbedUnimplementedSatSysServer() {}
 
@@ -125,6 +140,24 @@ func _SatSys_UpdateSystem_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SatSys_CmdGetSystem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CmdRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SatSysServer).CmdGetSystem(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SatSys_CmdGetSystem_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SatSysServer).CmdGetSystem(ctx, req.(*CmdRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SatSys_ServiceDesc is the grpc.ServiceDesc for SatSys service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -139,6 +172,10 @@ var SatSys_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateSystem",
 			Handler:    _SatSys_UpdateSystem_Handler,
+		},
+		{
+			MethodName: "CmdGetSystem",
+			Handler:    _SatSys_CmdGetSystem_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

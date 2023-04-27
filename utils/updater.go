@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"starlink/globaldata"
+	"starlink/prefabs"
 
 	// pb "starlink/grpc/basic_service/basicservice"
 	pb "starlink/pb"
@@ -49,7 +50,7 @@ func decode(tle [3]string) pb.Satellite {
 
 // api
 // some systems are not exist on website
-func Update_System_U(sys_name string) {
+func Fetch_System_U(sys_name string) {
 	path, _ := os.Getwd()
 	url := "http://celestrak.com/NORAD/elements/" + sys_name + ".txt"
 	filepath := path + "/Data/" + sys_name + ".txt"
@@ -60,6 +61,14 @@ func Update_System_U(sys_name string) {
 		panic(err.Error())
 	}
 	defer resp.Body.Close()
+
+	is_new_sys := true
+	for _, sys := range globaldata.System_Info {
+		if sys.NAME == sys_name {
+			is_new_sys = false
+			break
+		}
+	}
 
 	// open the file that will be written
 	out, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE, os.ModePerm)
@@ -81,6 +90,10 @@ func Update_System_U(sys_name string) {
 				break
 			}
 		}
+	}
+	if is_new_sys {
+		res := GetAllSys_U()
+		Update_System_U(res)
 	}
 }
 
@@ -105,6 +118,22 @@ func Update_Data_U(sys_id int) {
 			globaldata.System_Info[sys_id-1].SysTLE[i] = tle
 		}
 		update_database(sys_id, one_satellite)
+	}
+}
+
+// api
+// update system_info
+
+func Update_System_U(res []pb.Satellite_System) {
+	for index, sys := range res {
+		var s prefabs.System
+		s.ID = sys.Id
+		s.NAME = sys.Name
+		if index >= len(globaldata.System_Info) {
+			globaldata.System_Info = append(globaldata.System_Info, s)
+		} else {
+			globaldata.System_Info[index] = s
+		}
 	}
 }
 

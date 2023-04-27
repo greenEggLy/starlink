@@ -3,6 +3,8 @@ package main
 import (
 	// "fmt"
 
+	"starlink/ssys"
+
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -17,7 +19,7 @@ func main() {
 	// router.GET("/starlink/get_satb_sidname/:sys_id/:name",getter.GetSatBySysIdAndName)
 
 	// router.Run("localhost:8080")
-	// ssys.Execute()
+	ssys.Execute()
 	// sat.Execute()
 
 	// test updatesystem

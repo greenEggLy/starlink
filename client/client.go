@@ -27,6 +27,9 @@ func main() {
 
 	// Search for a satellite
 	printSatellite(client, pb.SearchContext{SatName: "HJ-1A", SysName: "DMC"})
+
+	// Search for a system
+	printSys(client, pb.CmdRequest{Cmd: "getsys -a"})
 }
 
 func printSatellite(client pb.SatSysClient, names pb.SearchContext) {
@@ -35,4 +38,12 @@ func printSatellite(client pb.SatSysClient, names pb.SearchContext) {
 		log.Fatalf("fail to dial: %v", err)
 	}
 	log.Printf("Satellite: %v\n", sat)
+}
+
+func printSys(clent pb.SatSysClient, cmdLine pb.CmdRequest) {
+	response, err := clent.CmdGetSystem(context.Background(), &cmdLine)
+	if err != nil {
+		log.Fatalf("fail to dial: %v", err)
+	}
+	log.Printf("System: %v\n", response)
 }
