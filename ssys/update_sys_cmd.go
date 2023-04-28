@@ -3,8 +3,6 @@ package ssys
 import (
 	"fmt"
 
-	"starlink/globaldata"
-
 	"github.com/spf13/cobra"
 )
 
@@ -19,17 +17,7 @@ var updateSys = &cobra.Command{
 			fmt.Println("please input satellite system name")
 			return
 		}
-		find := false
-		for _, sys := range globaldata.System_Info {
-			if sys.NAME == sys_name {
-				Update_System(sys_name)
-				find = true
-				break
-			}
-		}
-		if !find {
-			fmt.Printf("satellite system not found!\n")
-		}
+		Update_System(sys_name)
 	},
 }
 

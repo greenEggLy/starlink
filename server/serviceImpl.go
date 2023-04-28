@@ -1,32 +1,30 @@
 package main
 
 import (
-	"starlink/prefabs"
 	"starlink/sat"
 	"starlink/ssys"
 	"strings"
 )
 
-func parseCmdline(cmd string) prefabs.CmdRet {
+func parseCmdline(cmd string) interface{} {
 	args := strings.Fields(cmd)
-	var ret prefabs.CmdRet
 	switch args[0] {
 	case "update":
 		ssys.Update_System(args[1])
-		ret.RetType = -1
+		return nil
 	case "getsys":
 		if args[1] == "-a" {
-			ret.Syss = ssys.GetAllSys()
-			ret.RetType = 3
+			return ssys.GetAllSys()
 		} else {
-			ret.OneSys = ssys.GetOneSys(args[1])
-			ret.RetType = 2
+			return ssys.GetOneSys(args[1])
 		}
-
 	case "get":
-		ret.OneSat = sat.GetSatBySysNameAndName(args[1], args[2])
-		ret.RetType = 0
+		if len(args) == 2 {
+			return sat.GetSatsBySysName(args[1])
+		} else if len(args) == 3 {
+			return sat.GetSatBySysNameAndName(args[1], args[2])
+		}
 	default:
 	}
-	return ret
+	return nil
 }

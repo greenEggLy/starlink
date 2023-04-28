@@ -53,3 +53,23 @@ func GetOneSys_U(sys_name string) pb.Satellite_System {
 	symt.QueryRow(sys_name).Scan(&res.Id, &res.Name)
 	return res
 }
+
+func InsertSys_U(sys_name string) {
+	db, err := sql.Open("mysql", "root:@tcp(localhost:3306)/starlink")
+	if err != nil {
+		panic(err.Error())
+	}
+	defer db.Close()
+
+	query := "INSERT INTO systems (name) VALUES (?);"
+	symt, err := db.Prepare(query)
+	if err != nil {
+		panic(err.Error())
+	}
+	defer symt.Close()
+
+	_, err = symt.Exec(sys_name)
+	if err != nil {
+		panic(err.Error())
+	}
+}

@@ -28,8 +28,7 @@ func main() {
 	// Search for a satellite
 	printSatellite(client, pb.SearchContext{SatName: "HJ-1A", SysName: "DMC"})
 
-	// Search for a system
-	printSys(client, pb.CmdRequest{Cmd: "getsys -a"})
+	printSys(client, pb.CmdRequest{Cmd: "get DMC"})
 }
 
 func printSatellite(client pb.SatSysClient, names pb.SearchContext) {

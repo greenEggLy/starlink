@@ -14,8 +14,15 @@ var updateSys = &cobra.Command{
 	Short:   "get one satellite",
 	Long:    `get one satellite by system name and satellite name`,
 	Run: func(cmd *cobra.Command, args []string) {
-		res := GetSatBySysNameAndName(sys_name, sat_name)
-		fmt.Printf("%v\n", res)
+		if sat_name != "" && sys_name != "" {
+			res := GetSatBySysNameAndName(sys_name, sat_name)
+			fmt.Printf("%v\n", res)
+		} else if sys_name != "" {
+			res := GetSatsBySysName(sys_name)
+			fmt.Printf("%v\n", res)
+		} else {
+			fmt.Printf("please input system name\n")
+		}
 	},
 }
 

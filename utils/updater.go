@@ -5,143 +5,90 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
-	"starlink/globaldata"
-	"starlink/prefabs"
+	"os/exec"
+	"strconv"
 
-	// pb "starlink/grpc/basic_service/basicservice"
 	pb "starlink/pb"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
-func decode(tle [3]string) pb.Satellite {
-	TLE1 := tle[1]
-	TLE2 := tle[2]
-	var result pb.Satellite
-
-	result.Name = strings.TrimSpace(tle[0])
-	result.NumSat = TLE1[2:7]
-	result.Inter = TLE1[9:17]
-	result.Year = TLE1[18:20]
-	result.Day = TLE1[20:32]
-	if TLE1[33] == '-' {
-		result.FirstMotion = "-0"
-	} else {
-		result.FirstMotion = "0"
-	}
-	result.FirstMotion += TLE1[34:44]
-	result.SecondMotion = TLE1[44:52]
-	result.Drag = TLE1[53:61]
-	result.Number = strings.TrimSpace(TLE1[64:68])
-	result.Incl = strings.TrimSpace(TLE2[8:16])
-	result.RA = strings.TrimSpace(TLE2[17:25])
-	result.Eccentricity = "0." + TLE2[26:33]
-	result.ArgPer = strings.TrimSpace(TLE2[34:42])
-	result.Anomaly = strings.TrimSpace(TLE2[43:51])
-	result.Motion = strings.TrimSpace(TLE2[52:63])
-	result.Epoch = strings.TrimSpace(TLE2[63:68])
-
-	return result
-
-}
-
 // api
-// some systems are not exist on website
+// fetch information from website and update the database
 func Fetch_System_U(sys_name string) {
-	path, _ := os.Getwd()
-	url := "http://celestrak.com/NORAD/elements/" + sys_name + ".txt"
-	filepath := path + "/Data/" + sys_name + ".txt"
-
-	// get raw resp from url
-	resp, err := http.Get(url)
-	if err != nil {
-		panic(err.Error())
-	}
-	defer resp.Body.Close()
-
-	is_new_sys := true
-	for _, sys := range globaldata.System_Info {
-		if sys.NAME == sys_name {
-			is_new_sys = false
-			break
-		}
+	// if the system is not exist on the website, then we cannot fetch it
+	sys_from_web := get_sys_from_website()
+	var value pb.Satellite_System
+	value.Name = sys_name
+	_, found := FindByName(value, sys_from_web)
+	if !found {
+		fmt.Printf("system %s not on the website\n", sys_name)
+		return
 	}
 
-	// open the file that will be written
-	out, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE, os.ModePerm)
-	if err != nil {
-		panic(err.Error())
+	// check if the system is exist in local database
+	tar_sys := GetOneSys_U(sys_name)
+	if tar_sys.Name == "" {
+		// if the system is not exist, then insert
+		InsertSys_U(sys_name)
+		tar_sys = GetOneSys_U(sys_name)
 	}
-	defer out.Close()
 
-	// write the response body to the file
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		panic(err.Error())
-	} else {
-		fmt.Printf("load: %s\n", sys_name)
-		for index, value := range globaldata.System_Info {
-			if value.NAME == sys_name {
-				Update_Data_U(index + 1)
-				fmt.Printf("update %s\n", sys_name)
-				break
-			}
-		}
-	}
-	if is_new_sys {
-		res := GetAllSys_U()
-		Update_System_U(res)
-	}
+	// write to file and update database
+	write_file(sys_name)
+	update_data(tar_sys)
 }
 
-// api
-// or used after update data from internet
-// update one system's info
-func Update_Data_U(sys_id int) {
-	lines := read_file(sys_id)
+// read from file
+// update database
+func update_data(system pb.Satellite_System) {
+	// read file
+	lines := read_file(system.GetName())
 	sat_num := len(lines) / 3
 	fmt.Printf("sat_num: %d\n", sat_num)
 	var tle [3]string
-	// one_satellite stores tmp data, and use this to update database
 	var one_satellite pb.Satellite
-	for i := 0; i < sat_num; i++ { // i is the satellite index
-		tle[0] = lines[i*3]
-		tle[1] = lines[i*3+1]
-		tle[2] = lines[i*3+2]
+
+	// decode and update
+	for sat_index := 0; sat_index < sat_num; sat_index++ { // i is the satellite index
+		tle[0] = lines[sat_index*3]
+		tle[1] = lines[sat_index*3+1]
+		tle[2] = lines[sat_index*3+2]
 		one_satellite = decode(tle)
-		if len(globaldata.System_Info[sys_id-1].SysTLE) <= i {
-			globaldata.System_Info[sys_id-1].SysTLE = append(globaldata.System_Info[sys_id].SysTLE, tle)
-		} else {
-			globaldata.System_Info[sys_id-1].SysTLE[i] = tle
+		sys_id, err := strconv.Atoi(system.GetId())
+		if err != nil {
+			log.Fatal(err)
 		}
 		update_database(sys_id, one_satellite)
 	}
 }
 
-// api
-// update system_info
-
-func Update_System_U(res []pb.Satellite_System) {
-	for index, sys := range res {
-		var s prefabs.System
-		s.ID = sys.Id
-		s.NAME = sys.Name
-		if index >= len(globaldata.System_Info) {
-			globaldata.System_Info = append(globaldata.System_Info, s)
-		} else {
-			globaldata.System_Info[index] = s
+// get accessible system from website
+func get_sys_from_website() []pb.Satellite_System {
+	var res []pb.Satellite_System
+	cmd := exec.Command("python3", "utils/soup/get_all_sys.py")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("cmd.Run() failed with %s\n", err)
+	}
+	out = out[1 : len(out)-2]
+	for _, sys := range strings.Split(string(out), ",") {
+		if sys != "" {
+			sys = trim_sys_name(sys)
+			res = append(res, pb.Satellite_System{Name: sys})
 		}
 	}
+	return res
 }
 
 // read file util
-func read_file(sys_id int) []string {
+func read_file(sys_name string) []string {
 	path, _ := os.Getwd()
-	fp, err := os.Open(path + "/Data/" + globaldata.System_Info[sys_id-1].NAME + ".txt")
-	// fp,err := os.Open(path + "/Data/2012-044.txt")
+	fp, err := os.Open(path + "/Data/" + sys_name + ".txt")
 	if err != nil {
 		panic(err.Error())
 	}
@@ -156,6 +103,34 @@ func read_file(sys_id int) []string {
 		lines = append(lines, buf.Text()) // read every line
 	}
 	return lines
+}
+
+// write to file
+func write_file(sys_name string) {
+	// fetch the system
+	path, _ := os.Getwd()
+	url := "http://celestrak.com/NORAD/elements/" + sys_name + ".txt"
+	filepath := path + "/Data/" + sys_name + ".txt"
+
+	// get raw resp from url
+	resp, err := http.Get(url)
+	if err != nil {
+		panic(err.Error())
+	}
+	defer resp.Body.Close()
+
+	// open the file that will be written
+	out, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE, os.ModePerm)
+	if err != nil {
+		panic(err.Error())
+	}
+	defer out.Close()
+
+	// write the response body to the file
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		panic(err.Error())
+	}
 }
 
 // use update_database in update_data
