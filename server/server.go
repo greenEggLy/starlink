@@ -19,7 +19,7 @@ var (
 	// port2 = flag.Int("port2", 8080, "The server port communicating with unity")
 	port = flag.Int("port", 8081, "The server port")
 )
-var find_new_target = make(chan bool, 10)
+var findNewTarget = make(chan bool, 10)
 
 // a timeout timer as a channel
 // var timeout = make(chan bool, 10)
@@ -27,7 +27,7 @@ var find_new_target = make(chan bool, 10)
 type server struct {
 	pb.UnimplementedSatComServer
 	mu          sync.RWMutex
-	find_target bool
+	findTarget  bool
 	satNotes    map[string]*pb.SatelliteInfo
 	redisClient *utils.Redis
 }
@@ -75,13 +75,13 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 			log.Fatalf("failed to receive: %v\n", err)
 		}
 		// if unity find target, then save in redis
-		find_new_target <- in.FindTarget
+		findNewTarget <- in.FindTarget
 		go func() {
-			find := <-find_new_target
-			if find || !find && s.find_target {
+			find := <-findNewTarget
+			if find || !find && s.findTarget {
 				// if someone finds target, then put it in redis
 				if find {
-					s.find_target = true
+					s.findTarget = true
 				}
 				s.mu.Lock()
 				for _, v := range in.TargetPosition {
@@ -91,17 +91,16 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 				sats := unWrapMap(s.satNotes)
 				notes := s.redisClient.GetAllPos()
 				if len(notes) == 0 {
-					s.find_target = false
+					s.findTarget = false
 				}
 				msg := pb.Base2UnityInfo{
-					FindTarget:     s.find_target,
+					FindTarget:     s.findTarget,
 					TargetPosition: notes,
 					TrackingSat:    sats,
 				}
 				stream.Send(&msg)
 			} else {
 				msg := pb.Base2UnityInfo{
-					// Timestamp:      time.Now().UTC().Format(time.RFC3339),
 					FindTarget:     false,
 					TargetPosition: nil,
 					TrackingSat:    nil,
@@ -124,31 +123,31 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 			return err
 		}
 		// whenever receive a new message from channel find_new_target, send message to client
-		if s.find_target {
+		if s.findTarget {
 			s.satNotes[in.SatName] = &pb.SatelliteInfo{
 				SatName:     in.SatName,
 				SatPosition: in.SatPosition,
 			}
-			find_new_target <- true
+			findNewTarget <- true
 		} else {
 			delete(s.satNotes, in.SatName)
-			find_new_target <- false
+			findNewTarget <- false
 		}
 
 		go func() {
-			find := <-find_new_target
+			find := <-findNewTarget
 			p := createBasePos()
 			var msg pb.Base2SatInfo
-			if find || s.find_target {
+			if find || s.findTarget {
 				if find {
-					s.find_target = true
+					s.findTarget = true
 				}
 				notes := s.redisClient.GetAllPos()
 				if len(notes) == 0 {
-					s.find_target = false
+					s.findTarget = false
 				}
 				msg = pb.Base2SatInfo{
-					FindTarget:     s.find_target,
+					FindTarget:     s.findTarget,
 					BasePosition:   &p,
 					TargetPosition: notes,
 				}

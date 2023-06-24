@@ -12,10 +12,10 @@ import (
 )
 
 type Redis struct {
-	client        *redis.Client
-	expire_sec    int
-	max_timestamp int64
-	m             sync.Mutex
+	client       *redis.Client
+	expire_sec   int
+	maxTimeStamp int64
+	m            sync.Mutex
 }
 
 func NewRedis(expire_seconds ...int) *Redis {
@@ -28,8 +28,8 @@ func NewRedis(expire_seconds ...int) *Redis {
 			Password: "", // no password set
 			DB:       0,  // use default DB
 		}),
-		expire_sec:    expire_seconds[0],
-		max_timestamp: 0,
+		expire_sec:   expire_seconds[0],
+		maxTimeStamp: 0,
 	}
 	return r
 }
@@ -42,8 +42,8 @@ func (r *Redis) SetPosition(value *pb.PositionInfo) {
 	}
 	timestamp_time := time.Unix(ts, 0)
 	expire_time := timestamp_time.Add(time.Duration(r.expire_sec) * time.Second)
-	if ts > r.max_timestamp {
-		r.max_timestamp = ts
+	if ts > r.maxTimeStamp {
+		r.maxTimeStamp = ts
 	}
 	key := fmt.Sprint(ts)
 	r.m.Lock()
@@ -58,7 +58,7 @@ func (r *Redis) GetAllPos() []*pb.PositionInfo {
 	var pos []*pb.PositionInfo
 	time_now := time.Now().Unix()
 	r.m.Lock()
-	for i := time_now; i <= r.max_timestamp; i++ {
+	for i := time_now; i <= r.maxTimeStamp; i++ {
 		key := fmt.Sprint(i)
 		value, err := r.client.HGetAll(context.Background(), key).Result()
 		if err != nil {
