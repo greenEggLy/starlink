@@ -1,8 +1,12 @@
 /Data/
 /.vscode/
-
+utils/solutions/
+utils/gpredict/
+legacy
 # go.sum
 
 *.sql
 
 *.token
+
+*.html
