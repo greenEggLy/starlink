@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -19,10 +18,10 @@ import (
 var (
 	serverAddr = flag.String("addr", "localhost:8081", "The server address in the format of host:port")
 
-	random_generator = rand.New(rand.NewSource(time.Now().UnixNano()))
+	randomGenerator = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	satellite_msg_num = 0
-	unity_msg_num     = 0
+	satelliteMsgNum = 0
+	unityMsgNum     = 0
 )
 
 func main() {
@@ -55,7 +54,7 @@ func postAndReceive(client pb.SatComClient) {
 	unityTicker := time.NewTicker(1 * time.Second)
 	defer unityTicker.Stop()
 	// one timer
-	timeoutTimer := time.NewTimer(70 * time.Second)
+	timeoutTimer := time.NewTimer(5 * time.Second)
 
 	// wait for both stream end
 	waitc := make(chan struct{})
@@ -99,8 +98,8 @@ func postAndReceive(client pb.SatComClient) {
 				// show warning on screen
 				// ...
 				names := getSatNames(in.TrackingSat)
-				n, _ := json.MarshalIndent(names, "", "\t")
-				log.Printf("[unity]:find target, position num: %d, satellites: %v\n", len(in.TargetPosition), n)
+
+				log.Printf("[unity]:find target, position num: %d, satellites: %v\n", len(in.TargetPosition), names)
 			} else {
 				log.Printf("[unity]:no target")
 			}
@@ -114,22 +113,22 @@ func postAndReceive(client pb.SatComClient) {
 			case <-satt.C:
 				// send satellite position info to server
 				var msg pb.Sat2BaseInfo
-				if satellite_msg_num < 0 {
+				if satelliteMsgNum < 0 {
 					msg = pb.Sat2BaseInfo{
-						SatName:        fmt.Sprintf("%s%d", "satellite-", satellite_msg_num),
-						SatPosition:    generateOnePos(),
+						SatName:        fmt.Sprintf("%s%d", "satellite-", satelliteMsgNum),
+						SatPosition:    generateOnePos(0),
 						FindTarget:     false,
 						TargetPosition: nil,
 					}
 				} else {
 					msg = pb.Sat2BaseInfo{
-						SatName:        fmt.Sprintf("%s%d", "satellite-", satellite_msg_num),
-						SatPosition:    generateOnePos(),
+						SatName:        fmt.Sprintf("%s%d", "satellite-", satelliteMsgNum),
+						SatPosition:    generateOnePos(0),
 						FindTarget:     true,
 						TargetPosition: generateRandomTargetPos(3),
 					}
 				}
-				satellite_msg_num++
+				satelliteMsgNum++
 				if err := sat_stream.Send(&msg); err != nil {
 					log.Fatalf("satellite-base flow failed\n")
 				}
@@ -137,7 +136,7 @@ func postAndReceive(client pb.SatComClient) {
 			case <-unit.C:
 				// send unity position info to server
 				var msg pb.Unity2BaseInfoTemplate
-				if unity_msg_num < 0 {
+				if unityMsgNum < 0 {
 					msg = pb.Unity2BaseInfoTemplate{
 						FindTarget:     false,
 						TargetPosition: nil,
@@ -148,7 +147,7 @@ func postAndReceive(client pb.SatComClient) {
 						TargetPosition: generateRandomTargetPos(3),
 					}
 				}
-				unity_msg_num++
+				unityMsgNum++
 				if err := unity_stream.Send(&msg); err != nil {
 					log.Fatalf("satellite-base flow failed\n")
 				}
@@ -157,6 +156,8 @@ func postAndReceive(client pb.SatComClient) {
 				close(waitc2)
 				unit.Stop()
 				satt.Stop()
+				sat_stream.CloseSend()
+				unity_stream.CloseSend()
 				return
 			}
 		}
@@ -166,12 +167,12 @@ func postAndReceive(client pb.SatComClient) {
 	<-waitc2
 }
 
-func generateOnePos() *pb.PositionInfo {
+func generateOnePos(i int64) *pb.PositionInfo {
 	pos := pb.PositionInfo{
-		Timestamp: fmt.Sprint(time.Now().Unix()),
-		Alt:       random_generator.Float32(),
-		Lng:       random_generator.Float32(),
-		Lat:       random_generator.Float32(),
+		Timestamp: fmt.Sprint(time.Now().Unix() + i),
+		Alt:       randomGenerator.Float32(),
+		Lng:       randomGenerator.Float32(),
+		Lat:       randomGenerator.Float32(),
 	}
 	return &pos
 }
@@ -179,7 +180,7 @@ func generateOnePos() *pb.PositionInfo {
 func generateRandomTargetPos(num int) []*pb.PositionInfo {
 	ret := []*pb.PositionInfo{}
 	for i := 0; i < num; i++ {
-		ret = append(ret, generateOnePos())
+		ret = append(ret, generateOnePos(int64(i)))
 	}
 	return ret
 }

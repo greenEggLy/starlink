@@ -13,6 +13,7 @@ import (
 	"starlink/utils"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -28,13 +29,13 @@ type server struct {
 	pb.UnimplementedSatComServer
 	mu          sync.RWMutex
 	findTarget  bool
-	satNotes    map[string]*pb.SatelliteInfo
+	satNotes    *utils.ExpiredMap
 	redisClient *utils.Redis
 }
 
 func newServer() *server {
 	s := &server{
-		satNotes:    make(map[string]*pb.SatelliteInfo),
+		satNotes:    utils.NewExpiredMap(),
 		redisClient: utils.NewRedis(60),
 	}
 	return s
@@ -71,6 +72,11 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 		if err == io.EOF {
 			return nil
 		}
+		errStatus, _ := status.FromError(err)
+		if errStatus.Code() == 1 {
+			log.Printf("stream cancelled")
+			return nil
+		}
 		if err != nil {
 			log.Fatalf("failed to receive: %v\n", err)
 		}
@@ -78,6 +84,7 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 		findNewTarget <- in.FindTarget
 		go func() {
 			find := <-findNewTarget
+			log.Printf("receive from unity, %v", in.TargetPosition)
 			if find || !find && s.findTarget {
 				// if someone finds target, then put it in redis
 				if find {
@@ -88,7 +95,7 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 					s.redisClient.SetPosition(v)
 				}
 				s.mu.Unlock()
-				sats := unWrapMap(s.satNotes)
+				sats := s.satNotes.GetAll()
 				notes := s.redisClient.GetAllPos()
 				if len(notes) == 0 {
 					s.findTarget = false
@@ -119,18 +126,25 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 		if err == io.EOF {
 			return nil
 		}
+		errStatus, _ := status.FromError(err)
+		if errStatus.Code() == 1 {
+			log.Printf("stream cancelled")
+			return nil
+		}
 		if err != nil {
 			return err
 		}
 		// whenever receive a new message from channel find_new_target, send message to client
+		log.Printf("receive from satellite, %v", in.TargetPosition)
 		if s.findTarget {
-			s.satNotes[in.SatName] = &pb.SatelliteInfo{
+			satInfo := &pb.SatelliteInfo{
 				SatName:     in.SatName,
 				SatPosition: in.SatPosition,
 			}
+			s.satNotes.Set(in.SatName, *satInfo, int64(60))
 			findNewTarget <- true
 		} else {
-			delete(s.satNotes, in.SatName)
+			s.satNotes.Delete(in.SatName)
 			findNewTarget <- false
 		}
 
@@ -154,6 +168,7 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 				err = stream.Send(&msg)
 				if err != nil {
 					log.Printf("[server]send message error")
+					grpc.WithReturnConnectionError()
 				}
 			} else {
 				msg = pb.Base2SatInfo{
@@ -164,17 +179,10 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 				err = stream.Send(&msg)
 				if err != nil {
 					log.Printf("[server]send message error")
+					grpc.WithReturnConnectionError()
 				}
 			}
 		}()
 
 	}
-}
-
-func unWrapMap(m map[string]*pb.SatelliteInfo) []*pb.SatelliteInfo {
-	var res []*pb.SatelliteInfo
-	for _, v := range m {
-		res = append(res, v)
-	}
-	return res
 }

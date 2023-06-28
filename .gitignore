@@ -6,7 +6,7 @@ legacy
 # go.sum
 
 *.sql
-
+*.key
 *.token
 
 *.html
