@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"fmt"
 	pb "starlink/pb"
 	"strconv"
 	"sync"
@@ -45,7 +44,7 @@ func (r *Redis) SetPosition(value *pb.PositionInfo) {
 	if ts > r.maxTimeStamp {
 		r.maxTimeStamp = ts
 	}
-	key := fmt.Sprint(ts)
+	key := r.appendString(value.TargetName, ts)
 	r.m.Lock()
 	r.client.HSet(context.Background(), key, "ALT", value.Alt, "LAT", value.Lat, "LNG", value.Lng)
 	r.client.ExpireAt(context.Background(), key, expire_time)
@@ -54,35 +53,49 @@ func (r *Redis) SetPosition(value *pb.PositionInfo) {
 
 }
 
-func (r *Redis) GetAllPos() []*pb.PositionInfo {
+// get all positions by target name and timestamp
+func (r *Redis) GetAllPos(targetNames []*string) []*pb.PositionInfo {
 	var pos []*pb.PositionInfo
 	time_now := time.Now().Unix()
 	r.m.Lock()
-	for i := time_now; i <= r.maxTimeStamp; i++ {
-		key := fmt.Sprint(i)
-		value, err := r.client.HGetAll(context.Background(), key).Result()
-		if err != nil {
-			continue
-		}
-		if value["ALT"] == "" || value["LAT"] == "" || value["LNG"] == "" {
-			continue
-		}
-		alt, err1 := strconv.ParseFloat(value["ALT"], 32)
-		lat, err2 := strconv.ParseFloat(value["LAT"], 32)
-		lng, err3 := strconv.ParseFloat(value["LNG"], 32)
-		if err1 != nil || err2 != nil || err3 != nil {
-			panic("cannot parse position info")
-		}
-		p := pb.PositionInfo{
-			Timestamp: key,
-			Alt:       float32(alt),
-			Lat:       float32(lat),
-			Lng:       float32(lng),
-		}
-		pos = append(pos, &p)
-		// log.Printf("[redis] get position info: ALT: %s, LAT: %s, LNG: %s", value["ALT"], value["LAT"], value["LNG"])
+	for _, name := range targetNames {
+		for ts := time_now; ts <= r.maxTimeStamp; ts++ {
+			// key in format: "targetName-timestamp"
+			key := r.appendString(*name, ts)
 
+			value, err := r.client.HGetAll(context.Background(), key).Result()
+			if err != nil {
+				continue
+			}
+			if value["ALT"] == "" || value["LAT"] == "" || value["LNG"] == "" {
+				continue
+			}
+			alt, err1 := strconv.ParseFloat(value["ALT"], 32)
+			lat, err2 := strconv.ParseFloat(value["LAT"], 32)
+			lng, err3 := strconv.ParseFloat(value["LNG"], 32)
+			if err1 != nil || err2 != nil || err3 != nil {
+				panic("cannot parse position info")
+			}
+			p := pb.PositionInfo{
+				Timestamp:  key,
+				Alt:        float32(alt),
+				Lat:        float32(lat),
+				Lng:        float32(lng),
+				TargetName: *name,
+			}
+			pos = append(pos, &p)
+			// log.Printf("[redis] get position info: ALT: %s, LAT: %s, LNG: %s", value["ALT"], value["LAT"], value["LNG"])
+
+		}
 	}
 	r.m.Unlock()
 	return pos
+}
+
+func (r *Redis) appendString(targetName string, ts int64) string {
+	buf := make([]byte, 0)
+	buf = append(buf, []byte(targetName)...)
+	buf = append(buf, "-"...)
+	buf = append(buf, []byte(strconv.FormatInt(ts, 10))...)
+	return string(buf)
 }

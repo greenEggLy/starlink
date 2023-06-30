@@ -10,3 +10,5 @@ legacy
 *.token
 
 *.html
+
+*.rdb

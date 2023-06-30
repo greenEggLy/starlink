@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	serverAddr = flag.String("addr", "localhost:8081", "The server address in the format of host:port")
+	serverAddr = flag.String("addr", "localhost:50051", "The server address in the format of host:port")
 
 	randomGenerator = rand.New(rand.NewSource(time.Now().UnixNano()))
 
@@ -33,7 +33,6 @@ func main() {
 	}
 	defer conn.Close()
 	client := pb.NewSatComClient(conn)
-
 	postAndReceive(client)
 }
 
@@ -54,7 +53,7 @@ func postAndReceive(client pb.SatComClient) {
 	unityTicker := time.NewTicker(1 * time.Second)
 	defer unityTicker.Stop()
 	// one timer
-	timeoutTimer := time.NewTimer(5 * time.Second)
+	timeoutTimer := time.NewTimer(30 * time.Second)
 
 	// wait for both stream end
 	waitc := make(chan struct{})
@@ -99,7 +98,7 @@ func postAndReceive(client pb.SatComClient) {
 				// ...
 				names := getSatNames(in.TrackingSat)
 
-				log.Printf("[unity]:find target, position num: %d, satellites: %v\n", len(in.TargetPosition), names)
+				log.Printf("[unity]:find target, position num: %d, satellite num: %d\n", len(in.TargetPosition), len(names))
 			} else {
 				log.Printf("[unity]:no target")
 			}
@@ -162,17 +161,17 @@ func postAndReceive(client pb.SatComClient) {
 			}
 		}
 	}(satTicker, unityTicker, timeoutTimer, client)
-
 	<-waitc
 	<-waitc2
 }
 
 func generateOnePos(i int64) *pb.PositionInfo {
 	pos := pb.PositionInfo{
-		Timestamp: fmt.Sprint(time.Now().Unix() + i),
-		Alt:       randomGenerator.Float32(),
-		Lng:       randomGenerator.Float32(),
-		Lat:       randomGenerator.Float32(),
+		Timestamp:  fmt.Sprint(time.Now().Unix() + i),
+		Alt:        randomGenerator.Float32(),
+		Lng:        randomGenerator.Float32(),
+		Lat:        randomGenerator.Float32(),
+		TargetName: "target1",
 	}
 	return &pos
 }

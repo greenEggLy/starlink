@@ -19,6 +19,7 @@ message PositionInfo {
     float alt = 2; // altitude
     float lat = 3; // latitude
     float lng = 4; // longitude
+    string target_name = 5;
 }
 
 

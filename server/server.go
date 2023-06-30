@@ -11,6 +11,7 @@ import (
 
 	pb "starlink/pb"
 	"starlink/utils"
+	async "starlink/utils/async"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
@@ -18,7 +19,7 @@ import (
 
 var (
 	// port2 = flag.Int("port2", 8080, "The server port communicating with unity")
-	port = flag.Int("port", 8081, "The server port")
+	port = flag.Int("port", 50051, "The server port")
 )
 var findNewTarget = make(chan bool, 10)
 
@@ -29,13 +30,15 @@ type server struct {
 	pb.UnimplementedSatComServer
 	mu          sync.RWMutex
 	findTarget  bool
-	satNotes    *utils.ExpiredMap
+	satNotes    *utils.ExpiredMap[pb.SatelliteInfo]
+	tarNotes    *utils.ExpiredMap[string]
 	redisClient *utils.Redis
 }
 
 func newServer() *server {
 	s := &server{
-		satNotes:    utils.NewExpiredMap(),
+		satNotes:    utils.NewExpiredMap[pb.SatelliteInfo](),
+		tarNotes:    utils.NewExpiredMap[string](),
 		redisClient: utils.NewRedis(60),
 	}
 	return s
@@ -84,35 +87,64 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 		findNewTarget <- in.FindTarget
 		go func() {
 			find := <-findNewTarget
-			log.Printf("receive from unity, %v", in.TargetPosition)
+			var err error
+			log.Printf("receive from unity")
 			if find || !find && s.findTarget {
-				// if someone finds target, then put it in redis
 				if find {
+					// handle information from unity
 					s.findTarget = true
+					targets := getAllTargetNames(in.TargetPosition)
+					s.mu.Lock()
+					for _, v := range targets {
+						s.tarNotes.Set(v, v, 60)
+					}
+					s.mu.Unlock()
+
+					setOperations := async.Exec(func() bool {
+						for _, v := range in.TargetPosition {
+							s.redisClient.SetPosition(v)
+						}
+						return true
+					})
+					_ = setOperations.Await()
 				}
-				s.mu.Lock()
-				for _, v := range in.TargetPosition {
-					s.redisClient.SetPosition(v)
-				}
-				s.mu.Unlock()
+
+				// return information
+				targets := s.tarNotes.GetAll()
 				sats := s.satNotes.GetAll()
-				notes := s.redisClient.GetAllPos()
+
+				positionNotes := async.Exec(func() []*pb.PositionInfo {
+					return s.redisClient.GetAllPos(targets)
+				})
+				notes := positionNotes.Await()
 				if len(notes) == 0 {
 					s.findTarget = false
+					msg := pb.Base2UnityInfo{
+						FindTarget:     s.findTarget,
+						TargetPosition: notes,
+						TrackingSat:    sats,
+					}
+					err = stream.Send(&msg)
+
+				} else {
+					msg := pb.Base2UnityInfo{
+						FindTarget:     s.findTarget,
+						TargetPosition: notes,
+						TrackingSat:    sats,
+					}
+					err = stream.Send(&msg)
 				}
-				msg := pb.Base2UnityInfo{
-					FindTarget:     s.findTarget,
-					TargetPosition: notes,
-					TrackingSat:    sats,
-				}
-				stream.Send(&msg)
 			} else {
 				msg := pb.Base2UnityInfo{
 					FindTarget:     false,
 					TargetPosition: nil,
 					TrackingSat:    nil,
 				}
-				stream.Send(&msg)
+				err = stream.Send(&msg)
+			}
+			if err != nil {
+				log.Printf("[server]send message error")
+				grpc.WithReturnConnectionError()
 			}
 		}()
 
@@ -142,6 +174,12 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 				SatPosition: in.SatPosition,
 			}
 			s.satNotes.Set(in.SatName, *satInfo, int64(60))
+			targets := getAllTargetNames(in.TargetPosition)
+			s.mu.Lock()
+			for _, v := range targets {
+				s.tarNotes.Set(v, v, 60)
+			}
+			s.mu.Unlock()
 			findNewTarget <- true
 		} else {
 			s.satNotes.Delete(in.SatName)
@@ -152,23 +190,49 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 			find := <-findNewTarget
 			p := createBasePos()
 			var msg pb.Base2SatInfo
+			var err error
 			if find || s.findTarget {
 				if find {
+					// handle information from satellite
 					s.findTarget = true
+					targets := getAllTargetNames(in.TargetPosition)
+					s.mu.Lock()
+					for _, v := range targets {
+						s.tarNotes.Set(v, v, 60)
+					}
+					s.mu.Unlock()
+
+					setOperations := async.Exec(func() bool {
+						for _, v := range in.TargetPosition {
+							s.redisClient.SetPosition(v)
+						}
+						return true
+					})
+					_ = setOperations.Await()
 				}
-				notes := s.redisClient.GetAllPos()
+
+				// return information
+				targets := s.tarNotes.GetAll()
+				positionNotes := async.Exec(func() []*pb.PositionInfo {
+					return s.redisClient.GetAllPos(targets)
+				})
+				notes := positionNotes.Await()
+
 				if len(notes) == 0 {
 					s.findTarget = false
-				}
-				msg = pb.Base2SatInfo{
-					FindTarget:     s.findTarget,
-					BasePosition:   &p,
-					TargetPosition: notes,
-				}
-				err = stream.Send(&msg)
-				if err != nil {
-					log.Printf("[server]send message error")
-					grpc.WithReturnConnectionError()
+					msg = pb.Base2SatInfo{
+						FindTarget:     s.findTarget,
+						BasePosition:   &p,
+						TargetPosition: notes,
+					}
+					err = stream.Send(&msg)
+				} else {
+					msg = pb.Base2SatInfo{
+						FindTarget:     s.findTarget,
+						BasePosition:   &p,
+						TargetPosition: notes,
+					}
+					err = stream.Send(&msg)
 				}
 			} else {
 				msg = pb.Base2SatInfo{
@@ -177,12 +241,21 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 					TargetPosition: nil,
 				}
 				err = stream.Send(&msg)
-				if err != nil {
-					log.Printf("[server]send message error")
-					grpc.WithReturnConnectionError()
-				}
+			}
+			if err != nil {
+				log.Printf("[server]send message error")
+				grpc.WithReturnConnectionError()
 			}
 		}()
 
 	}
+}
+
+func getAllTargetNames(targets []*pb.PositionInfo) []string {
+	var names []string
+	for _, v := range targets {
+		names = append(names, v.TargetName)
+	}
+	names = utils.RemoveDuplicateElement(names)
+	return names
 }
