@@ -81,7 +81,7 @@ message Base2Sat{
 message SatPhotoRequest{
     string timestamp = 1;
     SatelliteInfo sat_info = 2;
-    ZoneInfo zone = 3;
+    repeated ZoneInfo zone = 3;
     bytes image_data = 4;
 }
 

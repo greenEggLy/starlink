@@ -47,6 +47,7 @@ func postAndReceive(client pb.SatComClient) {
 	defer satTicker.Stop()
 	unityTicker := time.NewTicker(1 * time.Second)
 	defer unityTicker.Stop()
+	// needPhotoRequestNum := 0
 	// one timer
 	timeoutTimer := time.NewTimer(30 * time.Second)
 
@@ -73,6 +74,32 @@ func postAndReceive(client pb.SatComClient) {
 			} else {
 				log.Printf("[sat]:no target in horizon\n")
 			}
+
+			// should take a photo and send
+			if in.TakePhoto {
+				log.Printf("[sat]:takes photo")
+				log.Printf("[sat]: zone: %v", in.Zone)
+				image := make([]byte, 0)
+				image = append(image, "photo"...)
+				photoRequest := pb.SatPhotoRequest{
+					Timestamp: getTimeStamp(),
+					SatInfo:   generateSatInfo(),
+					Zone:      in.Zone,
+					ImageData: image,
+				}
+				// send a photo request to server
+				// in the rpc service TakePhotos
+				for {
+					checkMsg, err := client.TakePhotos(ctx, &photoRequest)
+					if err != nil {
+						log.Fatalf("satellite-base flow failed: %v", err)
+					}
+					if checkMsg.ReceivePhoto {
+						break
+					}
+				}
+			}
+
 		}
 	}()
 	// unity-base
@@ -117,6 +144,19 @@ func postAndReceive(client pb.SatComClient) {
 				if err := unity_stream.Send(msg); err != nil {
 					log.Fatalf("satellite-base flow failed\n")
 				}
+
+				go func() {
+					request := pb.UnityPhotoRequest{
+						Timestamp: getTimeStamp(),
+						Zone:      generateZoneInfo(),
+					}
+					photo, err := client.SendPhotos(ctx, &request)
+					if err != nil {
+						log.Fatalln("get photo error")
+					}
+					log.Printf("photo, %v", photo)
+				}()
+
 			case <-timeoutTimer.C:
 				close(waitc)
 				close(waitc2)

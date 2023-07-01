@@ -8,7 +8,7 @@ import (
 )
 
 type Queue struct {
-	Content []*pb.PositionInfo
+	Content []*pb.LLAPosition
 	Timeout int // timeout为0为无限延时， 小于0为不延时， 大于0为延时timeout秒
 	MaxSize int // 队列容量, 小于或等于0为不限量，不限量时延时无效，大于0且到达上限时则开始延时
 }
@@ -16,7 +16,7 @@ type Queue struct {
 var lock = sync.Mutex{}
 
 // 超过设定延时时间后， 元素会被抛弃
-func (q *Queue) Put(msg *pb.PositionInfo) {
+func (q *Queue) Put(msg *pb.LLAPosition) {
 	lock.Lock()
 	closeSingle := make(chan bool)
 	succesSingle := make(chan bool)
@@ -54,11 +54,11 @@ func (q *Queue) Put(msg *pb.PositionInfo) {
 }
 
 // 超过延时时间时会返回空字符串
-func (q *Queue) Get() *pb.PositionInfo {
+func (q *Queue) Get() *pb.LLAPosition {
 	lock.Lock()
 	closeSingle := make(chan bool)
-	succesSingle := make(chan *pb.PositionInfo)
-	go func(close chan bool, output chan *pb.PositionInfo) {
+	succesSingle := make(chan *pb.LLAPosition)
+	go func(close chan bool, output chan *pb.LLAPosition) {
 		var t1 *time.Timer
 		t1 = time.NewTimer(time.Second * time.Duration(q.Timeout))
 		for {
@@ -95,7 +95,7 @@ func (q *Queue) Size() int {
 
 func NewQueue(timeout int, maxsize int) *Queue {
 	return &Queue{
-		Content: []*pb.PositionInfo{},
+		Content: []*pb.LLAPosition{},
 		Timeout: timeout,
 		MaxSize: maxsize,
 	}
