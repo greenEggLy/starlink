@@ -6,21 +6,21 @@ import (
 	"time"
 )
 
-type val[T pb.SatelliteInfo | string] struct {
+type val[T pb.SatelliteInfo | string | chan []byte] struct {
 	data        T
 	expiredTime int64
 }
 
 const delChannelCap = 100
 
-type ExpiredMap[T pb.SatelliteInfo | string] struct {
+type ExpiredMap[T pb.SatelliteInfo | string | chan []byte] struct {
 	m       map[interface{}]*val[T]
 	timeMap map[int64][]interface{}
 	lck     *sync.Mutex
 	stop    chan struct{}
 }
 
-func NewExpiredMap[T pb.SatelliteInfo | string]() *ExpiredMap[T] {
+func NewExpiredMap[T pb.SatelliteInfo | string | chan []byte]() *ExpiredMap[T] {
 	e := ExpiredMap[T]{
 		m:       make(map[interface{}]*val[T]),
 		lck:     new(sync.Mutex),
@@ -79,13 +79,24 @@ func (e *ExpiredMap[T]) Set(key any, value T, expireSeconds int64) {
 	e.timeMap[expiredTime] = append(e.timeMap[expiredTime], key) //过期时间作为key，放在map中
 }
 
-func (e *ExpiredMap[T]) Get(key interface{}) (found bool, value interface{}) {
+func (e *ExpiredMap[T]) Get(key interface{}) (found bool, value T) {
 	e.lck.Lock()
 	defer e.lck.Unlock()
 	if found = e.checkDeleteKey(key); !found {
 		return
 	}
 	value = e.m[key].data
+	return
+}
+
+func (e *ExpiredMap[T]) GetAndDelete(key interface{}) (found bool, value T) {
+	e.lck.Lock()
+	defer e.lck.Unlock()
+	if found = e.checkDeleteKey(key); !found {
+		return
+	}
+	value = e.m[key].data
+	delete(e.m, key)
 	return
 }
 

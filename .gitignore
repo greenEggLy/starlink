@@ -14,5 +14,6 @@ legacy
 *.rdb
 
 satfile.proto
+satsys.proto
 
 dump.rdb

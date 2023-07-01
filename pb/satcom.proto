@@ -5,53 +5,114 @@ package commu;
 option go_package = "starlink/pb";
 
 service SatCom{
-    rpc CommuWizSat(stream Sat2BaseInfo) returns (stream Base2SatInfo);
-    // 卫星作为client，向基站发信，两端都是流的方法
-    rpc ReceiveFromUnity_template(stream Unity2BaseInfo_template) returns (stream Base2UnityInfo);
+    // 卫星作为client，时刻广播自身的位置和检测目标情况，两端都是流的方法，基站携带参数是否有拍照请求，在卫星端进行确认
+    // 如果需要拍照则卫星端调用另一个rpc方法, 向基站发送照片
+    rpc CommuWizSat(stream SatRequest) returns (stream Base2Sat);
+
+    // 卫星拍摄完成后，调用这个方法，向基站发送照片
+    // 基站返回是否成功收到照片
+    rpc TakePhotos(SatPhotoRequest) returns (BasePhotoReceiveResponse);
+
     // 可以用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
-    rpc SendToUnity(stream Base2UnityInfo) returns (Unity2BaseInfo);
-    // 最后需要实现的方法，基站作为client，持续发送卫星跟踪信息给unity端，unity最后返回一个message
+    rpc ReceiveFromUnity_template(stream UnityRequest_template) returns (stream Base2Unity);
+
+    rpc CommuWizUnity(UnityRequest) returns (stream Base2Unity);
+    
+
+    // unity向基站发送请求照片的信息，基站返回照片
+    rpc SendPhotos(UnityPhotoRequest) returns (stream BasePhotoResponse);
+
 }
 
 
-message PositionInfo {
+// position, including latitude and longitude
+message LLPosition {
+    string timestamp = 1;
+    float lat = 2;
+    float lng = 3;
+}
+
+// position, including latitude, longitude and altitude
+message LLAPosition {
     string timestamp = 1;
     float alt = 2; // altitude
     float lat = 3; // latitude
     float lng = 4; // longitude
-    string target_name = 5;
 }
 
 
+// utils
+// target position
+message TargetInfo{
+    string target_name = 1; // target name
+    LLAPosition target_position = 2; // position(LLA)
+}
+
+// represents a zone on earth, using the upper left and bottom right point
+message ZoneInfo {
+    LLPosition upper_left = 2;
+    LLPosition bottom_right = 3;
+}
+
+// satellite information, including name and position
 message SatelliteInfo{
-    string sat_name = 1;
-    PositionInfo sat_position = 2;
+    string sat_name= 1;
+    LLAPosition sat_position = 2;
 }
 
-message Sat2BaseInfo{
-    string sat_name = 1;
-    PositionInfo sat_position = 2;
-    bool find_target = 3;
-    repeated PositionInfo target_position = 4;
-}
+// messages
+// message for communication
 
-message Base2SatInfo{
-    PositionInfo base_position = 1;
+message SatRequest{
+    SatelliteInfo sat_info = 1;
     bool find_target = 2;
-    repeated PositionInfo target_position = 3;
+    repeated TargetInfo target_info = 3;
 }
 
-message Unity2BaseInfo{
-    string msg = 1;
+message Base2Sat{
+    LLPosition base_position = 1;
+    bool find_target = 2;
+    repeated TargetInfo target_info = 3;
+    // if this field is true, satellite takes the photo and call another rpc service
+    bool take_photo = 4;
+    repeated ZoneInfo zone = 5;
 }
 
-message Unity2BaseInfo_template{
+message SatPhotoRequest{
+    string timestamp = 1;
+    SatelliteInfo sat_info = 2;
+    ZoneInfo zone = 3;
+    bytes image_data = 4;
+}
+
+message BasePhotoReceiveResponse{
+    string timestamp = 1;
+    bool receive_photo = 2;
+}
+
+message UnityRequest{
+    bool status_ok = 1;
+}
+
+message UnityRequest_template{
     bool find_target = 1;
-    repeated PositionInfo target_position = 2;
+    repeated TargetInfo target_position = 2;
 }
 
-message Base2UnityInfo{
+message Base2Unity{
     bool find_target = 1;
-    repeated PositionInfo target_position = 2;
+    repeated TargetInfo target_position = 2;
     repeated SatelliteInfo tracking_sat = 3;
+}
+
+
+message UnityPhotoRequest{
+    string timestamp = 1;
+    ZoneInfo zone = 2;
+}
+
+message BasePhotoResponse{
+    string timestamp = 1;
+    ZoneInfo zone = 2;
+    bytes image_data = 3;
 }

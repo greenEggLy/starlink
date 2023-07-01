@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
@@ -9,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	pb "starlink/pb"
+	"starlink/pb"
 	"starlink/utils"
 	async "starlink/utils/async"
 
@@ -23,15 +25,16 @@ var (
 )
 var findNewTarget = make(chan bool, 10)
 
-// a timeout timer as a channel
-// var timeout = make(chan bool, 10)
-
+// server holds whether the system is tracking a target
+// and the information of satellites and targets
+// expiredMap is thread-safe
 type server struct {
 	pb.UnimplementedSatComServer
 	mu          sync.RWMutex
 	findTarget  bool
 	satNotes    *utils.ExpiredMap[pb.SatelliteInfo]
 	tarNotes    *utils.ExpiredMap[string]
+	photoNotes  *utils.ExpiredMap[chan []byte]
 	redisClient *utils.Redis
 }
 
@@ -39,19 +42,10 @@ func newServer() *server {
 	s := &server{
 		satNotes:    utils.NewExpiredMap[pb.SatelliteInfo](),
 		tarNotes:    utils.NewExpiredMap[string](),
+		photoNotes:  utils.NewExpiredMap[chan []byte](),
 		redisClient: utils.NewRedis(60),
 	}
 	return s
-}
-
-func createBasePos() pb.PositionInfo {
-	pos := pb.PositionInfo{
-		Timestamp: fmt.Sprint(time.Now().Unix()),
-		Alt:       30,
-		Lat:       30,
-		Lng:       30,
-	}
-	return pos
 }
 
 func main() {
@@ -68,7 +62,7 @@ func main() {
 	}
 }
 
-// server <-> Unity
+// server <-> Unity [target]
 func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTemplateServer) error {
 	for {
 		in, err := stream.Recv()
@@ -84,68 +78,32 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 			log.Fatalf("failed to receive: %v\n", err)
 		}
 		// if unity find target, then save in redis
-		findNewTarget <- in.FindTarget
+		findNewTarget <- in.FindTarget || s.findTarget
 		go func() {
 			find := <-findNewTarget
-			var err error
 			log.Printf("receive from unity")
-			if find || !find && s.findTarget {
-				// handle information
-				if find {
-					// handle information from unity
-					s.findTarget = true
-					targets := getAllTargetNames(in.TargetPosition)
-					s.mu.Lock()
-					for _, v := range targets {
-						s.tarNotes.Set(v, v, 60)
-					}
-					s.mu.Unlock()
-
-					setOperations := async.Exec(func() bool {
-						for _, v := range in.TargetPosition {
-							s.redisClient.SetPosition(v)
-						}
-						return true
-					})
-					_ = setOperations.Await()
+			if in.FindTarget == true {
+				// handle information from unity
+				s.findTarget = true
+				// save tracking target information
+				targetNames := getAllTargetNames(in.TargetPosition)
+				for _, v := range targetNames {
+					s.tarNotes.Set(v, v, 60)
 				}
-
-				// return information
-				targets := s.tarNotes.GetAll()
-				sats := s.satNotes.GetAll()
-
-				positionNotes := async.Exec(func() []*pb.PositionInfo {
-					return s.redisClient.GetAllPos(targets)
+				setOperations := async.Exec(func() bool {
+					for _, v := range in.TargetPosition {
+						s.redisClient.SetPosition(v)
+					}
+					return true
 				})
-				notes := positionNotes.Await()
-
-				if len(notes) == 0 {
-					s.findTarget = false
-					msg := pb.Base2UnityInfo{
-						FindTarget:     s.findTarget,
-						TargetPosition: notes,
-						TrackingSat:    sats,
-					}
-					err = stream.Send(&msg)
-
-				} else {
-					msg := pb.Base2UnityInfo{
-						FindTarget:     s.findTarget,
-						TargetPosition: notes,
-						TrackingSat:    sats,
-					}
-					err = stream.Send(&msg)
-				}
-			} else {
-				msg := pb.Base2UnityInfo{
-					FindTarget:     false,
-					TargetPosition: nil,
-					TrackingSat:    nil,
-				}
-				err = stream.Send(&msg)
+				_ = setOperations.Await()
 			}
+
+			msg := s.createBase2UnityMsg(find)
+			err := stream.Send(msg)
+
 			if err != nil {
-				log.Printf("[server]send message error")
+				log.Printf("[server]send to unity error, %v", err)
 				grpc.WithReturnConnectionError()
 			}
 		}()
@@ -153,102 +111,91 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 	}
 }
 
-// server <-> Satellite
+// server <-> Unity [photo]
+func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_SendPhotosServer) error {
+	timeoutSec := 5
+
+	zoneInfo := request.GetZone()
+	// check if the request is duplicate
+	find, _ := s.photoNotes.Get(zoneInfo)
+	if find {
+		return nil
+	}
+	// create a channel to receive photo
+	photoChan := make(chan []byte, 1)
+	s.photoNotes.Set(zoneInfo, photoChan, int64(timeoutSec))
+	// wait for the channel and send it to unity
+	timer := time.NewTimer(time.Second * time.Duration(timeoutSec))
+	select {
+	case <-timer.C:
+		// delete the element in photoNotes
+		s.photoNotes.Delete(zoneInfo)
+		err := stream.Send(&pb.BasePhotoResponse{
+			Timestamp: getTimeStamp(),
+			Zone:      zoneInfo,
+			ImageData: nil,
+		})
+		return err
+	case photo := <-photoChan:
+		log.Printf("receive photo")
+		err := stream.Send(&pb.BasePhotoResponse{
+			Timestamp: getTimeStamp(),
+			Zone:      zoneInfo,
+			ImageData: photo,
+		})
+		s.photoNotes.Delete(zoneInfo)
+		if err != nil {
+			log.Printf("send photo error, %v", err)
+			return err
+		}
+	}
+	return nil
+}
+
+// server <-> Satellite [target]
 func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 	for {
 		in, err := stream.Recv()
 		if err == io.EOF {
 			return nil
 		}
-		errStatus, _ := status.FromError(err)
-		if errStatus.Code() == 1 {
-			log.Printf("stream cancelled")
-			return nil
-		}
 		if err != nil {
+			errStatus, _ := status.FromError(err)
+			if errStatus.Code() == 1 {
+				log.Printf("stream cancelled")
+				return nil
+			}
 			return err
 		}
 		// whenever receive a new message from channel find_new_target, send message to client
 		log.Printf("receive from satellite, %v", in.FindTarget)
-		if in.FindTarget || s.findTarget {
-			// handle information
-			satInfo := &pb.SatelliteInfo{
-				SatName:     in.SatName,
-				SatPosition: in.SatPosition,
-			}
-			s.satNotes.Set(in.SatName, *satInfo, int64(60))
-			targets := getAllTargetNames(in.TargetPosition)
-			s.mu.Lock()
-			for _, v := range targets {
-				s.tarNotes.Set(v, v, 60)
-			}
-			s.mu.Unlock()
-			findNewTarget <- true
-		} else {
-			s.satNotes.Delete(in.SatName)
-			findNewTarget <- false
-		}
+
+		findNewTarget <- in.FindTarget || s.findTarget
 
 		go func() {
 			find := <-findNewTarget
-			p := createBasePos()
-			var msg pb.Base2SatInfo
-			var err error
-			if find || s.findTarget {
-				if find {
-					// handle information from satellite
-					s.findTarget = true
-					targets := getAllTargetNames(in.TargetPosition)
-					s.mu.Lock()
-					for _, v := range targets {
-						s.tarNotes.Set(v, v, 60)
-					}
-					s.mu.Unlock()
-					setOperations := async.Exec(func() bool {
-						for _, v := range in.TargetPosition {
-							s.redisClient.SetPosition(v)
-						}
-						return true
-					})
-					_ = setOperations.Await()
+			// save info in satellite message
+			if in.FindTarget {
+				satInfo := in.SatInfo
+				s.satNotes.Set(satInfo.SatName, *satInfo, int64(60))
+				targets := getAllTargetNames(in.TargetInfo)
+				for _, v := range targets {
+					s.tarNotes.Set(v, v, int64(60))
 				}
-
-				// return information
-				targets := s.tarNotes.GetAll()
-				positionNotes := async.Exec(func() []*pb.PositionInfo {
-					return s.redisClient.GetAllPos(targets)
+				setOperations := async.Exec(func() bool {
+					for _, v := range in.TargetInfo {
+						s.redisClient.SetPosition(v)
+					}
+					return true
 				})
-				notes := positionNotes.Await()
-
-				if len(notes) == 0 {
-					s.findTarget = false
-					msg = pb.Base2SatInfo{
-						FindTarget:     s.findTarget,
-						BasePosition:   &p,
-						TargetPosition: notes,
-					}
-					err = stream.Send(&msg)
-				} else {
-					msg = pb.Base2SatInfo{
-						FindTarget:     s.findTarget,
-						BasePosition:   &p,
-						TargetPosition: notes,
-					}
-					log.Printf("%v", msg)
-					err = stream.Send(&msg)
-					if err != nil {
-						log.Printf("[server]send message error")
-						// grpc.WithReturnConnectionError()
-					}
-				}
+				_ = setOperations.Await()
 			} else {
-				msg = pb.Base2SatInfo{
-					FindTarget:     false,
-					BasePosition:   &p,
-					TargetPosition: nil,
-				}
-				err = stream.Send(&msg)
+				s.satNotes.Delete(in.SatInfo.SatName)
 			}
+
+			msg := s.createBase2SatMsg(find)
+			err := stream.Send(msg)
+
 			if err != nil {
 				// log.Printf("[server]send message error")
 				// grpc.WithReturnConnectionError()
@@ -258,11 +205,27 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 	}
 }
 
-func getAllTargetNames(targets []*pb.PositionInfo) []string {
-	var names []string
-	for _, v := range targets {
-		names = append(names, v.TargetName)
+func (s *server) TakePhotos(ctx context.Context, request *pb.SatPhotoRequest) (*pb.BasePhotoReceiveResponse, error) {
+	// get zone information
+	zoneInfo := request.GetZone()
+	if binary.Size(request.ImageData) <= 0 {
+		return &pb.BasePhotoReceiveResponse{
+			Timestamp:    getTimeStamp(),
+			ReceivePhoto: false,
+		}, nil
 	}
-	names = utils.RemoveDuplicateElement(names)
-	return names
+	// check if other satellite has took the photo
+	check, channel := s.photoNotes.GetAndDelete(zoneInfo)
+
+	if check {
+		channel <- request.ImageData
+		return &pb.BasePhotoReceiveResponse{
+			Timestamp:    getTimeStamp(),
+			ReceivePhoto: true,
+		}, nil
+	}
+	return &pb.BasePhotoReceiveResponse{
+		Timestamp:    getTimeStamp(),
+		ReceivePhoto: true,
+	}, nil
 }

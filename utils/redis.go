@@ -33,9 +33,9 @@ func NewRedis(expire_seconds ...int) *Redis {
 	return r
 }
 
-func (r *Redis) SetPosition(value *pb.PositionInfo) {
+func (r *Redis) SetPosition(value *pb.TargetInfo) {
 	// log.Printf("[redis] set position, timestamp: %s", value.Timestamp)
-	ts, err1 := strconv.ParseInt(value.Timestamp, 10, 64)
+	ts, err1 := strconv.ParseInt(value.TargetPosition.Timestamp, 10, 64)
 	if err1 != nil {
 		panic("parse time error")
 	}
@@ -46,7 +46,7 @@ func (r *Redis) SetPosition(value *pb.PositionInfo) {
 	}
 	key := r.appendString(value.TargetName, ts)
 	r.m.Lock()
-	r.client.HSet(context.Background(), key, "ALT", value.Alt, "LAT", value.Lat, "LNG", value.Lng)
+	r.client.HSet(context.Background(), key, "ALT", value.TargetPosition.Alt, "LAT", value.TargetPosition.Lat, "LNG", value.TargetPosition.Lng)
 	r.client.ExpireAt(context.Background(), key, expire_time)
 	r.m.Unlock()
 	// log.Printf("[redis] set position")
@@ -54,8 +54,8 @@ func (r *Redis) SetPosition(value *pb.PositionInfo) {
 }
 
 // get all positions by target name and timestamp
-func (r *Redis) GetAllPos(targetNames []*string) []*pb.PositionInfo {
-	var pos []*pb.PositionInfo
+func (r *Redis) GetAllPos(targetNames []*string) []*pb.TargetInfo {
+	var pos []*pb.TargetInfo
 	time_now := time.Now().Unix()
 	r.m.Lock()
 	for _, name := range targetNames {
@@ -76,16 +76,18 @@ func (r *Redis) GetAllPos(targetNames []*string) []*pb.PositionInfo {
 			if err1 != nil || err2 != nil || err3 != nil {
 				panic("cannot parse position info")
 			}
-			p := pb.PositionInfo{
-				Timestamp:  strconv.FormatInt(ts, 10),
-				Alt:        float32(alt),
-				Lat:        float32(lat),
-				Lng:        float32(lng),
-				TargetName: *name,
+			p_lla := pb.LLAPosition{
+				Timestamp: strconv.FormatInt(ts, 10),
+				Alt:       float32(alt),
+				Lat:       float32(lat),
+				Lng:       float32(lng),
+			}
+			p := pb.TargetInfo{
+				TargetName:     *name,
+				TargetPosition: &p_lla,
 			}
 			pos = append(pos, &p)
 			// log.Printf("[redis] get position info: ALT: %s, LAT: %s, LNG: %s", value["ALT"], value["LAT"], value["LNG"])
-
 		}
 	}
 	r.m.Unlock()

@@ -7,11 +7,11 @@ import (
 
 // Future interface has the method signature for await
 
-type Future[T bool | []*pb.PositionInfo] interface {
+type Future[T bool | []*pb.TargetInfo] interface {
 	Await() T
 }
 
-type future[T bool | []*pb.PositionInfo] struct {
+type future[T bool | []*pb.TargetInfo] struct {
 	await func(ctx context.Context) T
 }
 
@@ -23,7 +23,7 @@ func (f future[T]) Await() T {
 
 // Exec executes the async function
 
-func Exec[T bool | []*pb.PositionInfo](f func() T) Future[T] {
+func Exec[T bool | []*pb.TargetInfo](f func() T) Future[T] {
 
 	var result T
 
