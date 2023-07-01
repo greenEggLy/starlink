@@ -77,7 +77,7 @@ func (r *Redis) GetAllPos(targetNames []*string) []*pb.PositionInfo {
 				panic("cannot parse position info")
 			}
 			p := pb.PositionInfo{
-				Timestamp:  key,
+				Timestamp:  strconv.FormatInt(ts, 10),
 				Alt:        float32(alt),
 				Lat:        float32(lat),
 				Lng:        float32(lng),

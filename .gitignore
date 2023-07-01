@@ -12,3 +12,7 @@ legacy
 *.html
 
 *.rdb
+
+satfile.proto
+
+dump.rdb

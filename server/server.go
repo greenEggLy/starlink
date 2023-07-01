@@ -90,6 +90,7 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 			var err error
 			log.Printf("receive from unity")
 			if find || !find && s.findTarget {
+				// handle information
 				if find {
 					// handle information from unity
 					s.findTarget = true
@@ -117,6 +118,7 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 					return s.redisClient.GetAllPos(targets)
 				})
 				notes := positionNotes.Await()
+
 				if len(notes) == 0 {
 					s.findTarget = false
 					msg := pb.Base2UnityInfo{
@@ -167,8 +169,9 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 			return err
 		}
 		// whenever receive a new message from channel find_new_target, send message to client
-		log.Printf("receive from satellite, %v", in.TargetPosition)
-		if s.findTarget {
+		log.Printf("receive from satellite, %v", in.FindTarget)
+		if in.FindTarget || s.findTarget {
+			// handle information
 			satInfo := &pb.SatelliteInfo{
 				SatName:     in.SatName,
 				SatPosition: in.SatPosition,
@@ -201,7 +204,6 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 						s.tarNotes.Set(v, v, 60)
 					}
 					s.mu.Unlock()
-
 					setOperations := async.Exec(func() bool {
 						for _, v := range in.TargetPosition {
 							s.redisClient.SetPosition(v)
@@ -232,7 +234,12 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 						BasePosition:   &p,
 						TargetPosition: notes,
 					}
+					log.Printf("%v", msg)
 					err = stream.Send(&msg)
+					if err != nil {
+						log.Printf("[server]send message error")
+						// grpc.WithReturnConnectionError()
+					}
 				}
 			} else {
 				msg = pb.Base2SatInfo{
@@ -243,8 +250,8 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 				err = stream.Send(&msg)
 			}
 			if err != nil {
-				log.Printf("[server]send message error")
-				grpc.WithReturnConnectionError()
+				// log.Printf("[server]send message error")
+				// grpc.WithReturnConnectionError()
 			}
 		}()
 
