@@ -20,7 +20,7 @@ func getAllTargetNames(targets []*pb.TargetInfo) []string {
 }
 
 func (s *server) createBase2UnityMsg(hasTracking bool) *pb.Base2Unity {
-	if hasTracking == false {
+	if !hasTracking {
 		msg := pb.Base2Unity{
 			FindTarget:     false,
 			TargetPosition: nil,
@@ -57,7 +57,7 @@ func (s *server) createBase2UnityMsg(hasTracking bool) *pb.Base2Unity {
 
 func (s *server) createBase2SatMsg(hasTracking bool) *pb.Base2Sat {
 	basePosition := createBasePos()
-	if hasTracking == false {
+	if !hasTracking {
 		msg := pb.Base2Sat{
 			FindTarget:   false,
 			BasePosition: &basePosition,

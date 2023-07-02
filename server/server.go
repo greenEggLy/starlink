@@ -62,6 +62,38 @@ func main() {
 	}
 }
 
+func (s *server) CommuWizUnity(request *pb.UnityRequest, stream pb.SatCom_CommuWizUnityServer) error {
+	if !request.StatusOk {
+		return nil
+	}
+	// a ticker sending message every half second
+	// a timer for 10 seconds
+	ticker := time.NewTicker(500 * time.Millisecond)
+	timer := time.NewTimer(10 * time.Second)
+	defer ticker.Stop()
+	defer timer.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			msg := s.createBase2UnityMsg(s.findTarget)
+			err := stream.Send(msg)
+			if err == io.EOF {
+				return nil
+			}
+			errStatus, _ := status.FromError(err)
+			if errStatus.Code() == 1 {
+				log.Printf("request cancelled")
+				return nil
+			}
+			if err != nil {
+				log.Fatalf("failed to send: %v\n", err)
+			}
+		case <-timer.C:
+			return nil
+		}
+	}
+}
+
 // server <-> Unity [target]
 func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTemplateServer) error {
 	for {
@@ -82,7 +114,7 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 		go func() {
 			find := <-findNewTarget
 			log.Printf("receive from unity")
-			if in.FindTarget == true {
+			if in.FindTarget {
 				// handle information from unity
 				s.findTarget = true
 				// save tracking target information
@@ -197,8 +229,8 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 			err := stream.Send(msg)
 
 			if err != nil {
-				// log.Printf("[server]send message error")
-				// grpc.WithReturnConnectionError()
+				log.Printf("[server]send message error")
+				grpc.WithReturnConnectionError()
 			}
 		}()
 

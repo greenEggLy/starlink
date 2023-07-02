@@ -17,7 +17,6 @@ service SatCom{
     rpc ReceiveFromUnity_template(stream UnityRequest_template) returns (stream Base2Unity);
 
     rpc CommuWizUnity(UnityRequest) returns (stream Base2Unity);
-    
 
     // unity向基站发送请求照片的信息，基站返回照片
     rpc SendPhotos(UnityPhotoRequest) returns (stream BasePhotoResponse);
