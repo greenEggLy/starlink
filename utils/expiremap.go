@@ -1,47 +1,49 @@
 package utils
 
 import (
+	"log"
 	pb "starlink/pb"
 	"sync"
 	"time"
 )
 
-type val[T pb.SatelliteInfo | string | chan []byte] struct {
-	data        T
-	expiredTime int64
+type val[V pb.SatelliteInfo | string | chan []byte] struct {
+	data        V
+	expiredVime int64
 }
 
 const delChannelCap = 100
 
-type ExpiredMap[T pb.SatelliteInfo | string | chan []byte] struct {
-	m       map[interface{}]*val[T]
-	timeMap map[int64][]interface{}
+type ExpiredMap[K string, V pb.SatelliteInfo | string | chan []byte] struct {
+	m       map[K]*val[V]
+	timeMap map[int64][]K
 	lck     *sync.Mutex
 	stop    chan struct{}
 }
 
-func NewExpiredMap[T pb.SatelliteInfo | string | chan []byte]() *ExpiredMap[T] {
-	e := ExpiredMap[T]{
-		m:       make(map[interface{}]*val[T]),
+func NewExpiredMap[K string, V pb.SatelliteInfo | string | chan []byte]() *ExpiredMap[K, V] {
+	e := ExpiredMap[K, V]{
+		m:       make(map[K]*val[V]),
 		lck:     new(sync.Mutex),
-		timeMap: make(map[int64][]interface{}),
+		timeMap: make(map[int64][]K),
 		stop:    make(chan struct{}),
 	}
 	go e.run(time.Now().Unix())
 	return &e
 }
 
-type delMsg struct {
-	keys []interface{}
+type delMsg[K string, V pb.SatelliteInfo | string | chan []byte] struct {
+	keys []K
 	t    int64
 }
 
 // background goroutine 主动删除过期的key
 // 数据实际删除时间比应该删除的时间稍晚一些，这个误差会在查询的时候被解决。
-func (e *ExpiredMap[T]) run(now int64) {
+func (e *ExpiredMap[K, V]) run(now int64) {
 	t := time.NewTicker(time.Second * 1)
 	defer t.Stop()
-	delCh := make(chan *delMsg, delChannelCap)
+
+	delCh := make(chan *delMsg[K, V], delChannelCap)
 	go func() {
 		for v := range delCh {
 			e.multiDelete(v.keys, v.t)
@@ -54,7 +56,7 @@ func (e *ExpiredMap[T]) run(now int64) {
 			e.lck.Lock()
 			if keys, found := e.timeMap[now]; found {
 				e.lck.Unlock()
-				delCh <- &delMsg{keys: keys, t: now}
+				delCh <- &delMsg[K, V]{keys: keys, t: now}
 			} else {
 				e.lck.Unlock()
 			}
@@ -65,21 +67,21 @@ func (e *ExpiredMap[T]) run(now int64) {
 	}
 }
 
-func (e *ExpiredMap[T]) Set(key any, value T, expireSeconds int64) {
+func (e *ExpiredMap[K, V]) Set(key K, value V, expireSeconds int64) {
 	if expireSeconds <= 0 {
 		return
 	}
 	e.lck.Lock()
 	defer e.lck.Unlock()
-	expiredTime := time.Now().Unix() + expireSeconds
-	e.m[key] = &val[T]{
+	expiredVime := time.Now().Unix() + expireSeconds
+	e.m[key] = &val[V]{
 		data:        value,
-		expiredTime: expiredTime,
+		expiredVime: expiredVime,
 	}
-	e.timeMap[expiredTime] = append(e.timeMap[expiredTime], key) //过期时间作为key，放在map中
+	e.timeMap[expiredVime] = append(e.timeMap[expiredVime], key) //过期时间作为key，放在map中
 }
 
-func (e *ExpiredMap[T]) Get(key interface{}) (found bool, value T) {
+func (e *ExpiredMap[K, V]) Get(key K) (found bool, value V) {
 	e.lck.Lock()
 	defer e.lck.Unlock()
 	if found = e.checkDeleteKey(key); !found {
@@ -89,28 +91,17 @@ func (e *ExpiredMap[T]) Get(key interface{}) (found bool, value T) {
 	return
 }
 
-func (e *ExpiredMap[T]) GetAndDelete(key interface{}) (found bool, value T) {
-	e.lck.Lock()
-	defer e.lck.Unlock()
-	if found = e.checkDeleteKey(key); !found {
-		return
-	}
-	value = e.m[key].data
-	delete(e.m, key)
-	return
-}
-
-func (e *ExpiredMap[T]) Delete(key interface{}) {
+func (e *ExpiredMap[K, V]) Delete(key K) {
 	e.lck.Lock()
 	delete(e.m, key)
 	e.lck.Unlock()
 }
 
-func (e *ExpiredMap[T]) Remove(key interface{}) {
+func (e *ExpiredMap[K, V]) Remove(key K) {
 	e.Delete(key)
 }
 
-func (e *ExpiredMap[T]) multiDelete(keys []interface{}, t int64) {
+func (e *ExpiredMap[K, V]) multiDelete(keys []K, t int64) {
 	e.lck.Lock()
 	defer e.lck.Unlock()
 	delete(e.timeMap, t)
@@ -119,34 +110,34 @@ func (e *ExpiredMap[T]) multiDelete(keys []interface{}, t int64) {
 	}
 }
 
-func (e *ExpiredMap[T]) Length() int { //结果是不准确的，因为有未删除的key
+func (e *ExpiredMap[K, V]) Length() int { //结果是不准确的，因为有未删除的key
 	e.lck.Lock()
 	defer e.lck.Unlock()
 	return len(e.m)
 }
 
-func (e *ExpiredMap[T]) Size() int {
+func (e *ExpiredMap[K, V]) Size() int {
 	return e.Length()
 }
 
 // 返回key的剩余生存时间 key不存在返回负数
-func (e *ExpiredMap[T]) TTL(key interface{}) int64 {
+func (e *ExpiredMap[K, V]) VVL(key K) int64 {
 	e.lck.Lock()
 	defer e.lck.Unlock()
 	if !e.checkDeleteKey(key) {
 		return -1
 	}
-	return e.m[key].expiredTime - time.Now().Unix()
+	return e.m[key].expiredVime - time.Now().Unix()
 }
 
-func (e *ExpiredMap[T]) Clear() {
+func (e *ExpiredMap[K, V]) Clear() {
 	e.lck.Lock()
 	defer e.lck.Unlock()
-	e.m = make(map[interface{}]*val[T])
-	e.timeMap = make(map[int64][]interface{})
+	e.m = make(map[K]*val[V])
+	e.timeMap = make(map[int64][]K)
 }
 
-func (e *ExpiredMap[T]) Close() { // todo 关闭后在使用怎么处理
+func (e *ExpiredMap[K, V]) Close() { // todo 关闭后在使用怎么处理
 	e.lck.Lock()
 	defer e.lck.Unlock()
 	e.stop <- struct{}{}
@@ -154,11 +145,11 @@ func (e *ExpiredMap[T]) Close() { // todo 关闭后在使用怎么处理
 	//e.timeMap = nil
 }
 
-func (e *ExpiredMap[T]) Stop() {
+func (e *ExpiredMap[K, V]) Stop() {
 	e.Close()
 }
 
-func (e *ExpiredMap[T]) DoForEach(handler func(interface{}, interface{})) {
+func (e *ExpiredMap[K, V]) DoForEach(handler func(interface{}, interface{})) {
 	e.lck.Lock()
 	defer e.lck.Unlock()
 	for k, v := range e.m {
@@ -169,7 +160,7 @@ func (e *ExpiredMap[T]) DoForEach(handler func(interface{}, interface{})) {
 	}
 }
 
-func (e *ExpiredMap[T]) DoForEachWithBreak(handler func(interface{}, interface{}) bool) {
+func (e *ExpiredMap[K, V]) DoForEachWithBreak(handler func(interface{}, interface{}) bool) {
 	e.lck.Lock()
 	defer e.lck.Unlock()
 	for k, v := range e.m {
@@ -182,11 +173,11 @@ func (e *ExpiredMap[T]) DoForEachWithBreak(handler func(interface{}, interface{}
 	}
 }
 
-func (e *ExpiredMap[T]) checkDeleteKey(key interface{}) bool {
+func (e *ExpiredMap[K, V]) checkDeleteKey(key K) bool {
 	if val, found := e.m[key]; found {
-		if val.expiredTime <= time.Now().Unix() {
+		if val.expiredVime <= time.Now().Unix() {
 			delete(e.m, key)
-			//delete(e.timeMap, val.expiredTime)
+			//delete(e.timeMap, val.expiredVime)
 			return false
 		}
 		return true
@@ -195,18 +186,55 @@ func (e *ExpiredMap[T]) checkDeleteKey(key interface{}) bool {
 }
 
 // get all data
-func (e *ExpiredMap[T]) GetAll() []*T {
+func (e *ExpiredMap[K, V]) GetAll() []*V {
 	e.lck.Lock()
 	defer e.lck.Unlock()
-	m := []*T{}
+	m := []*V{}
 	for k, v := range e.m {
 		if !e.checkDeleteKey(k) {
 			continue
 		}
-		if k == nil || v == nil {
+		if v == nil {
 			continue
 		}
 		m = append(m, &v.data)
 	}
 	return m
+}
+
+func (e *ExpiredMap[K, V]) GetAllKeys() []K {
+	e.lck.Lock()
+	defer e.lck.Unlock()
+	m := []K{}
+	for k, v := range e.m {
+		if !e.checkDeleteKey(k) {
+			continue
+		}
+		if v == nil {
+			continue
+		}
+		m = append(m, k)
+	}
+	return m
+}
+
+func (e *ExpiredMap[K, V]) GetAndDelete(keys []K) (found bool, value []V) {
+	/// TODO: key cannot be found
+	e.lck.Lock()
+	defer e.lck.Unlock()
+
+	returnValue := make([]V, 0, len(keys))
+	flag := false
+	for _, k := range keys {
+		if !e.checkDeleteKey(k) {
+			continue
+		}
+		value := e.m[k].data
+		log.Printf("value: %v", value)
+		returnValue = append(returnValue, value)
+		flag = true
+		delete(e.m, k)
+	}
+	log.Printf("flag: %v, return: %v", flag, returnValue)
+	return flag, returnValue
 }

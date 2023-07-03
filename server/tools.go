@@ -57,11 +57,27 @@ func (s *server) createBase2UnityMsg(hasTracking bool) *pb.Base2Unity {
 
 func (s *server) createBase2SatMsg(hasTracking bool) *pb.Base2Sat {
 	basePosition := createBasePos()
+	var takePhoto = false
+	var zone []*pb.ZoneInfo
+
+	if s.photoNotes.Size() > 0 {
+		zones := s.photoNotes.GetAllKeys()
+		// if zone type is pb.ZoneInfo, then append to msg
+		// else then do nothing
+		takePhoto = true
+		for _, v := range zones {
+			zone = append(zone, utils.String2ZoneInfo(v))
+		}
+
+	}
+
 	if !hasTracking {
 		msg := pb.Base2Sat{
 			FindTarget:   false,
 			BasePosition: &basePosition,
 			TargetInfo:   nil,
+			TakePhoto:    takePhoto,
+			Zone:         zone,
 		}
 		return &msg
 	}
@@ -78,6 +94,8 @@ func (s *server) createBase2SatMsg(hasTracking bool) *pb.Base2Sat {
 			FindTarget:   false,
 			BasePosition: &basePosition,
 			TargetInfo:   nil,
+			TakePhoto:    takePhoto,
+			Zone:         zone,
 		}
 		return &msg
 	} else {
@@ -85,6 +103,8 @@ func (s *server) createBase2SatMsg(hasTracking bool) *pb.Base2Sat {
 			FindTarget:   true,
 			BasePosition: &basePosition,
 			TargetInfo:   notes,
+			TakePhoto:    takePhoto,
+			Zone:         zone,
 		}
 		return &msg
 	}

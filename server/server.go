@@ -32,17 +32,17 @@ type server struct {
 	pb.UnimplementedSatComServer
 	mu          sync.RWMutex
 	findTarget  bool
-	satNotes    *utils.ExpiredMap[pb.SatelliteInfo]
-	tarNotes    *utils.ExpiredMap[string]
-	photoNotes  *utils.ExpiredMap[chan []byte]
+	satNotes    *utils.ExpiredMap[string, pb.SatelliteInfo]
+	tarNotes    *utils.ExpiredMap[string, string]
+	photoNotes  *utils.ExpiredMap[string, chan []byte]
 	redisClient *utils.Redis
 }
 
 func newServer() *server {
 	s := &server{
-		satNotes:    utils.NewExpiredMap[pb.SatelliteInfo](),
-		tarNotes:    utils.NewExpiredMap[string](),
-		photoNotes:  utils.NewExpiredMap[chan []byte](),
+		satNotes:    utils.NewExpiredMap[string, pb.SatelliteInfo](),
+		tarNotes:    utils.NewExpiredMap[string, string](),
+		photoNotes:  utils.NewExpiredMap[string, chan []byte](),
 		redisClient: utils.NewRedis(60),
 	}
 	return s
@@ -66,6 +66,7 @@ func (s *server) CommuWizUnity(request *pb.UnityRequest, stream pb.SatCom_CommuW
 	if !request.StatusOk {
 		return nil
 	}
+	log.Printf("[unity] display\n")
 	// a ticker sending message every half second
 	// a timer for 10 seconds
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -113,7 +114,7 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 		findNewTarget <- in.FindTarget || s.findTarget
 		go func() {
 			find := <-findNewTarget
-			log.Printf("receive from unity")
+			log.Printf("[unity] target")
 			if in.FindTarget {
 				// handle information from unity
 				s.findTarget = true
@@ -149,19 +150,20 @@ func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_Send
 
 	zoneInfo := request.GetZone()
 	// check if the request is duplicate
-	find, _ := s.photoNotes.Get(zoneInfo)
+	find, _ := s.photoNotes.Get(zoneInfo.String())
 	if find {
 		return nil
 	}
 	// create a channel to receive photo
 	photoChan := make(chan []byte, 1)
-	s.photoNotes.Set(zoneInfo, photoChan, int64(timeoutSec))
+	s.photoNotes.Set(zoneInfo.String(), photoChan, int64(timeoutSec))
 	// wait for the channel and send it to unity
 	timer := time.NewTimer(time.Second * time.Duration(timeoutSec))
 	select {
 	case <-timer.C:
 		// delete the element in photoNotes
-		s.photoNotes.Delete(zoneInfo)
+		log.Printf("[unity] photo timeout")
+		s.photoNotes.Delete(zoneInfo.String())
 		err := stream.Send(&pb.BasePhotoResponse{
 			Timestamp: getTimeStamp(),
 			Zone:      zoneInfo,
@@ -169,13 +171,13 @@ func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_Send
 		})
 		return err
 	case photo := <-photoChan:
-		log.Printf("receive photo")
+		log.Printf("[unity] receive photo, %v", photo)
+		s.photoNotes.Delete(zoneInfo.String())
 		err := stream.Send(&pb.BasePhotoResponse{
 			Timestamp: getTimeStamp(),
 			Zone:      zoneInfo,
 			ImageData: photo,
 		})
-		s.photoNotes.Delete(zoneInfo)
 		if err != nil {
 			log.Printf("send photo error, %v", err)
 			return err
@@ -200,7 +202,7 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 			return err
 		}
 		// whenever receive a new message from channel find_new_target, send message to client
-		log.Printf("receive from satellite, %v", in.FindTarget)
+		log.Printf("[satellite] target")
 
 		findNewTarget <- in.FindTarget || s.findTarget
 
@@ -238,6 +240,7 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 }
 
 func (s *server) TakePhotos(ctx context.Context, request *pb.SatPhotoRequest) (*pb.BasePhotoReceiveResponse, error) {
+	log.Printf("[satellite] photo")
 	// get zone information
 	zoneInfo := request.GetZone()
 	if binary.Size(request.ImageData) <= 0 {
@@ -247,10 +250,12 @@ func (s *server) TakePhotos(ctx context.Context, request *pb.SatPhotoRequest) (*
 		}, nil
 	}
 	// check if other satellite has took the photo
-	check, channel := s.photoNotes.GetAndDelete(zoneInfo)
-
+	check, channel := s.photoNotes.GetAndDelete(utils.ZoneInfos2Strings(zoneInfo))
 	if check {
-		channel <- request.ImageData
+		log.Printf("[satellite] take photo success, channel size: %d", len(channel))
+		for _, v := range channel {
+			v <- request.ImageData
+		}
 		return &pb.BasePhotoReceiveResponse{
 			Timestamp:    getTimeStamp(),
 			ReceivePhoto: true,

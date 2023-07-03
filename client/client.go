@@ -67,9 +67,7 @@ func postAndReceive(client pb.SatComClient) {
 				return err
 			}
 			if in.FindTarget {
-				// find new target
-				// judge if the target is in the range
-				// ...
+				// do something
 				log.Printf("[sat]:target in horizon")
 			} else {
 				log.Printf("[sat]:no target in horizon\n")
@@ -77,14 +75,12 @@ func postAndReceive(client pb.SatComClient) {
 
 			// should take a photo and send
 			if in.TakePhoto {
-				log.Printf("[sat]:takes photo")
-				log.Printf("[sat]: zone: %v", in.Zone)
 				image := make([]byte, 0)
 				image = append(image, "photo"...)
 				photoRequest := pb.SatPhotoRequest{
 					Timestamp: getTimeStamp(),
 					SatInfo:   generateSatInfo(),
-					Zone:      in.Zone,
+					Zone:      []*pb.ZoneInfo{in.Zone[0]},
 					ImageData: image,
 				}
 				// send a photo request to server
@@ -144,17 +140,21 @@ func postAndReceive(client pb.SatComClient) {
 				if err := unity_stream.Send(msg); err != nil {
 					log.Fatalf("satellite-base flow failed\n")
 				}
-
+				request := pb.UnityPhotoRequest{
+					Timestamp: getTimeStamp(),
+					Zone:      generateZoneInfo(),
+				}
 				go func() {
-					request := pb.UnityPhotoRequest{
-						Timestamp: getTimeStamp(),
-						Zone:      generateZoneInfo(),
-					}
-					photo, err := client.SendPhotos(ctx, &request)
+					photoIn, err := client.SendPhotos(ctx, &request)
 					if err != nil {
 						log.Fatalln("get photo error")
 					}
-					log.Printf("photo, %v", photo)
+					response, err := photoIn.Recv()
+					if err != nil {
+						log.Fatalln("get photo error")
+					}
+					photo := response.ImageData
+					log.Printf("[unity] receive photo, %v", photo)
 				}()
 
 			case <-timeoutTimer.C:
