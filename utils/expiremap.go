@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"log"
 	pb "starlink/pb"
 	"sync"
 	"time"
@@ -218,23 +217,14 @@ func (e *ExpiredMap[K, V]) GetAllKeys() []K {
 	return m
 }
 
-func (e *ExpiredMap[K, V]) GetAndDelete(keys []K) (found bool, value []V) {
-	/// TODO: key cannot be found
+func (e *ExpiredMap[K, V]) GetAndDelete(key K) (found bool, value V) {
 	e.lck.Lock()
 	defer e.lck.Unlock()
 
-	returnValue := make([]V, 0, len(keys))
-	flag := false
-	for _, k := range keys {
-		if !e.checkDeleteKey(k) {
-			continue
-		}
-		value := e.m[k].data
-		log.Printf("value: %v", value)
-		returnValue = append(returnValue, value)
-		flag = true
-		delete(e.m, k)
+	if found = e.checkDeleteKey(key); !found {
+		return
 	}
-	log.Printf("flag: %v, return: %v", flag, returnValue)
-	return flag, returnValue
+	value = e.m[key].data
+	delete(e.m, key)
+	return
 }

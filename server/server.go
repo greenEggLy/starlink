@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -67,7 +68,7 @@ func (s *server) CommuWizUnity(request *pb.UnityRequest, stream pb.SatCom_CommuW
 		return nil
 	}
 	log.Printf("[unity] display\n")
-	// a ticker sending message every half second
+	// a ticker sending unmessage every half second
 	// a timer for 10 seconds
 	ticker := time.NewTicker(500 * time.Millisecond)
 	timer := time.NewTimer(10 * time.Second)
@@ -171,7 +172,7 @@ func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_Send
 		})
 		return err
 	case photo := <-photoChan:
-		log.Printf("[unity] receive photo, %v", photo)
+		log.Printf("[unity] receive photo, %s", hex.EncodeToString(photo))
 		s.photoNotes.Delete(zoneInfo.String())
 		err := stream.Send(&pb.BasePhotoResponse{
 			Timestamp: getTimeStamp(),
@@ -250,12 +251,9 @@ func (s *server) TakePhotos(ctx context.Context, request *pb.SatPhotoRequest) (*
 		}, nil
 	}
 	// check if other satellite has took the photo
-	check, channel := s.photoNotes.GetAndDelete(utils.ZoneInfos2Strings(zoneInfo))
+	check, channel := s.photoNotes.GetAndDelete(zoneInfo.String())
 	if check {
-		log.Printf("[satellite] take photo success, channel size: %d", len(channel))
-		for _, v := range channel {
-			v <- request.ImageData
-		}
+		channel <- request.ImageData
 		return &pb.BasePhotoReceiveResponse{
 			Timestamp:    getTimeStamp(),
 			ReceivePhoto: true,

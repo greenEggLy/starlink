@@ -22,16 +22,23 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SatComClient interface {
-	// 卫星作为client，时刻广播自身的位置和检测目标情况，两端都是流的方法，基站携带参数是否有拍照请求，在卫星端进行确认
-	// 如果需要拍照则卫星端调用另一个rpc方法, 向基站发送照片
+	// satellite时刻广播自己的位置, base返回目标信息以及是否有照片请求
+	// request: 卫星信息, 是否发现目标, 目标位置信息
+	// response: 基站位置, 是否发现目标, 目标位置信息, 是否有拍照请求, 请求拍照区域
 	CommuWizSat(ctx context.Context, opts ...grpc.CallOption) (SatCom_CommuWizSatClient, error)
-	// 卫星拍摄完成后，调用这个方法，向基站发送照片
-	// 基站返回是否成功收到照片
+	// satellite拍摄完成后发起请求, base接受照片信息并返回是否成功接收
+	// request: 时间戳, 卫星信息, 区域信息, 照片信息
+	// response: 时间戳, 是否成功收到照片
 	TakePhotos(ctx context.Context, in *SatPhotoRequest, opts ...grpc.CallOption) (*BasePhotoReceiveResponse, error)
 	// 可以用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
 	ReceiveFromUnityTemplate(ctx context.Context, opts ...grpc.CallOption) (SatCom_ReceiveFromUnityTemplateClient, error)
+	// unity端发起请求, base在一段时间内进行持续响应
+	// request: unity端状态(bool)
+	// response: 是否有目标(bool), 目标信息(目标名和LLA坐标), 追踪卫星信息(卫星名和LLA坐标)
 	CommuWizUnity(ctx context.Context, in *UnityRequest, opts ...grpc.CallOption) (SatCom_CommuWizUnityClient, error)
 	// unity向基站发送请求照片的信息，基站返回照片
+	// request: 时间戳(string) 区域信息(左上右下LL坐标)
+	// response: 时间戳(string) 区域信息(左上右下LL坐标) 照片信息([]byte)
 	SendPhotos(ctx context.Context, in *UnityPhotoRequest, opts ...grpc.CallOption) (SatCom_SendPhotosClient, error)
 }
 
@@ -182,16 +189,23 @@ func (x *satComSendPhotosClient) Recv() (*BasePhotoResponse, error) {
 // All implementations must embed UnimplementedSatComServer
 // for forward compatibility
 type SatComServer interface {
-	// 卫星作为client，时刻广播自身的位置和检测目标情况，两端都是流的方法，基站携带参数是否有拍照请求，在卫星端进行确认
-	// 如果需要拍照则卫星端调用另一个rpc方法, 向基站发送照片
+	// satellite时刻广播自己的位置, base返回目标信息以及是否有照片请求
+	// request: 卫星信息, 是否发现目标, 目标位置信息
+	// response: 基站位置, 是否发现目标, 目标位置信息, 是否有拍照请求, 请求拍照区域
 	CommuWizSat(SatCom_CommuWizSatServer) error
-	// 卫星拍摄完成后，调用这个方法，向基站发送照片
-	// 基站返回是否成功收到照片
+	// satellite拍摄完成后发起请求, base接受照片信息并返回是否成功接收
+	// request: 时间戳, 卫星信息, 区域信息, 照片信息
+	// response: 时间戳, 是否成功收到照片
 	TakePhotos(context.Context, *SatPhotoRequest) (*BasePhotoReceiveResponse, error)
 	// 可以用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
 	ReceiveFromUnityTemplate(SatCom_ReceiveFromUnityTemplateServer) error
+	// unity端发起请求, base在一段时间内进行持续响应
+	// request: unity端状态(bool)
+	// response: 是否有目标(bool), 目标信息(目标名和LLA坐标), 追踪卫星信息(卫星名和LLA坐标)
 	CommuWizUnity(*UnityRequest, SatCom_CommuWizUnityServer) error
 	// unity向基站发送请求照片的信息，基站返回照片
+	// request: 时间戳(string) 区域信息(左上右下LL坐标)
+	// response: 时间戳(string) 区域信息(左上右下LL坐标) 照片信息([]byte)
 	SendPhotos(*UnityPhotoRequest, SatCom_SendPhotosServer) error
 	mustEmbedUnimplementedSatComServer()
 }

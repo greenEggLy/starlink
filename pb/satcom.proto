@@ -5,33 +5,40 @@ package commu;
 option go_package = "starlink/pb";
 
 service SatCom{
-    // 卫星作为client，时刻广播自身的位置和检测目标情况，两端都是流的方法，基站携带参数是否有拍照请求，在卫星端进行确认
-    // 如果需要拍照则卫星端调用另一个rpc方法, 向基站发送照片
+    // satellite时刻广播自己的位置, base返回目标信息以及是否有照片请求
+    // request: 卫星信息, 是否发现目标, 目标位置信息
+    // response: 基站位置, 是否发现目标, 目标位置信息, 是否有拍照请求, 请求拍照区域
     rpc CommuWizSat(stream SatRequest) returns (stream Base2Sat);
 
-    // 卫星拍摄完成后，调用这个方法，向基站发送照片
-    // 基站返回是否成功收到照片
+    // satellite拍摄完成后发起请求, base接受照片信息并返回是否成功接收
+    // request: 时间戳, 卫星信息, 区域信息, 照片信息
+    // response: 时间戳, 是否成功收到照片
     rpc TakePhotos(SatPhotoRequest) returns (BasePhotoReceiveResponse);
 
     // 可以用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
     rpc ReceiveFromUnity_template(stream UnityRequest_template) returns (stream Base2Unity);
 
+    // unity端发起请求, base在一段时间内进行持续响应
+    // request: unity端状态(bool)
+    // response: 是否有目标(bool), 目标信息(目标名和LLA坐标), 追踪卫星信息(卫星名和LLA坐标)
     rpc CommuWizUnity(UnityRequest) returns (stream Base2Unity);
 
     // unity向基站发送请求照片的信息，基站返回照片
+    // request: 时间戳(string) 区域信息(左上右下LL坐标)
+    // response: 时间戳(string) 区域信息(左上右下LL坐标) 照片信息([]byte)
     rpc SendPhotos(UnityPhotoRequest) returns (stream BasePhotoResponse);
 
 }
 
 
-// position, including latitude and longitude
+// Latitude and Longitude, and timestamp
 message LLPosition {
     string timestamp = 1;
     float lat = 2;
     float lng = 3;
 }
 
-// position, including latitude, longitude and altitude
+// Altitude, Latitude and Longitude, and timestamp
 message LLAPosition {
     string timestamp = 1;
     float alt = 2; // altitude
@@ -40,34 +47,35 @@ message LLAPosition {
 }
 
 
-// utils
-// target position
+// target information: including target name and LLA position
 message TargetInfo{
     string target_name = 1; // target name
     LLAPosition target_position = 2; // position(LLA)
 }
 
-// represents a zone on earth, using the upper left and bottom right point
+// zone information: includng upper left and bottom right LL position
 message ZoneInfo {
     LLPosition upper_left = 2;
     LLPosition bottom_right = 3;
 }
 
-// satellite information, including name and position
+// satellite information: including name and LLA position
 message SatelliteInfo{
     string sat_name= 1;
     LLAPosition sat_position = 2;
 }
 
-// messages
-// message for communication
 
+// message
+
+// request in CommuWizSat
 message SatRequest{
     SatelliteInfo sat_info = 1;
     bool find_target = 2;
     repeated TargetInfo target_info = 3;
 }
 
+// response in CommuWizSat
 message Base2Sat{
     LLPosition base_position = 1;
     bool find_target = 2;
@@ -77,39 +85,47 @@ message Base2Sat{
     repeated ZoneInfo zone = 5;
 }
 
+
+// request in TakePhotos
 message SatPhotoRequest{
     string timestamp = 1;
     SatelliteInfo sat_info = 2;
-    repeated ZoneInfo zone = 3;
+    ZoneInfo zone = 3;
     bytes image_data = 4;
 }
 
+// response in TakePhotos
 message BasePhotoReceiveResponse{
     string timestamp = 1;
     bool receive_photo = 2;
 }
 
+
+// request in CommuWizUnity
 message UnityRequest{
     bool status_ok = 1;
 }
 
+// request in CommuWizUnityTemplate
 message UnityRequest_template{
     bool find_target = 1;
     repeated TargetInfo target_position = 2;
 }
 
+// response in CommuWizUnity
 message Base2Unity{
     bool find_target = 1;
     repeated TargetInfo target_position = 2;
     repeated SatelliteInfo tracking_sat = 3;
 }
 
-
+// request in SendPhotos
 message UnityPhotoRequest{
     string timestamp = 1;
     ZoneInfo zone = 2;
 }
 
+// response in SendPhotos
 message BasePhotoResponse{
     string timestamp = 1;
     ZoneInfo zone = 2;

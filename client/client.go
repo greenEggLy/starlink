@@ -77,10 +77,11 @@ func postAndReceive(client pb.SatComClient) {
 			if in.TakePhoto {
 				image := make([]byte, 0)
 				image = append(image, "photo"...)
+
 				photoRequest := pb.SatPhotoRequest{
 					Timestamp: getTimeStamp(),
 					SatInfo:   generateSatInfo(),
-					Zone:      []*pb.ZoneInfo{in.Zone[0]},
+					Zone:      in.Zone[0],
 					ImageData: image,
 				}
 				// send a photo request to server
