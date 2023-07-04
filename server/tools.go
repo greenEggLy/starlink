@@ -31,10 +31,7 @@ func (s *server) createBase2UnityMsg(hasTracking bool) pb.Base2Unity {
 	// return information
 	targets := s.tarNotes.GetAll() // target names
 	sats := s.satNotes.GetAll()    // tracking satellites
-	positionNotes := async.Exec(func() []*pb.TargetInfo {
-		return s.redisClient.GetAllPos(targets)
-	})
-	notes := positionNotes.Await() // target positions
+	notes := s.redisClient.GetAllPos(targets)
 
 	if len(notes) == 0 {
 		s.findTarget = false

@@ -37,7 +37,7 @@ func postAndReceive(client pb.SatComClient) {
 	if err != nil {
 		log.Fatalf("satellite-base flow failed: %v", err)
 	}
-	unity_stream, err := client.ReceiveFromUnityTemplate(ctx)
+	unity_stream, err := client.CommuWizUnity(ctx, &pb.UnityRequest{StatusOk: true})
 	if err != nil {
 		log.Fatalf("unity-base flow failed: %v", err)
 	}
@@ -98,30 +98,30 @@ func postAndReceive(client pb.SatComClient) {
 
 		}
 	}()
-	// unity-base
-	go func() error {
-		for {
-			in, err := unity_stream.Recv()
-			if err == io.EOF {
-				close(waitc2)
-				return nil
-			}
-			if err != nil {
-				log.Fatalf("unity-base flow failed: %v", err)
-				return err
-			}
-			if in.FindTarget {
-				// find target
-				// show warning on screen
-				// ...
-				names := cli.GetSatNames(in.TrackingSat)
+	// // unity-base
+	// go func() error {
+	// 	for {
+	// 		in, err := unity_stream.Recv()
+	// 		if err == io.EOF {
+	// 			close(waitc2)
+	// 			return nil
+	// 		}
+	// 		if err != nil {
+	// 			log.Fatalf("unity-base flow failed: %v", err)
+	// 			return err
+	// 		}
+	// 		if in.FindTarget {
+	// 			// find target
+	// 			// show warning on screen
+	// 			// ...
+	// 			names := cli.GetSatNames(in.TrackingSat)
 
-				log.Printf("[unity]:find target, position num: %d, satellite num: %d\n", len(in.TargetPosition), len(names))
-			} else {
-				log.Printf("[unity]:no target")
-			}
-		}
-	}()
+	// 			log.Printf("[unity]:find target, position num: %d, satellite num: %d\n", len(in.TargetPosition), len(names))
+	// 		} else {
+	// 			log.Printf("[unity]:no target")
+	// 		}
+	// 	}
+	// }()
 
 	// send message
 	go func(satt, unit *time.Ticker, timer *time.Timer, client pb.SatComClient) {
@@ -135,27 +135,27 @@ func postAndReceive(client pb.SatComClient) {
 				}
 
 			case <-unit.C:
-				// send unity position info to server
-				msg := cli.CreateUnityRequestTemplate(3)
-				if err := unity_stream.Send(msg); err != nil {
-					log.Fatalf("satellite-base flow failed\n")
-				}
-				request := pb.UnityPhotoRequest{
-					Timestamp: cli.GetTimeStamp(),
-					Zone:      cli.GenerateZoneInfo(),
-				}
-				go func() {
-					photoIn, err := client.SendPhotos(ctx, &request)
-					if err != nil {
-						log.Fatalln("get photo error")
-					}
-					response, err := photoIn.Recv()
-					if err != nil {
-						log.Fatalln("get photo error")
-					}
-					photo := response.ImageData
-					log.Printf("[unity] receive photo, %v", photo)
-				}()
+				// // send unity position info to server
+				// msg := cli.CreateUnityRequestTemplate(3)
+				// if err := unity_stream.Send(msg); err != nil {
+				// 	log.Fatalf("satellite-base flow failed\n")
+				// }
+				// request := pb.UnityPhotoRequest{
+				// 	Timestamp: cli.GetTimeStamp(),
+				// 	Zone:      cli.GenerateZoneInfo(),
+				// }
+				// go func() {
+				// 	photoIn, err := client.SendPhotos(ctx, &request)
+				// 	if err != nil {
+				// 		log.Fatalln("get photo error")
+				// 	}
+				// 	response, err := photoIn.Recv()
+				// 	if err != nil {
+				// 		log.Fatalln("get photo error")
+				// 	}
+				// 	photo := response.ImageData
+				// 	log.Printf("[unity] receive photo, %v", photo)
+				// }()
 
 			case <-timeoutTimer.C:
 				close(waitc)

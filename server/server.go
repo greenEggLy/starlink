@@ -78,6 +78,7 @@ func (s *server) CommuWizUnity(request *pb.UnityRequest, stream pb.SatCom_CommuW
 		select {
 		case <-ticker.C:
 			msg := s.createBase2UnityMsg(s.findTarget)
+			log.Printf("msg: %v", msg)
 			err := stream.Send(&msg)
 			if err == io.EOF {
 				return nil
@@ -88,7 +89,8 @@ func (s *server) CommuWizUnity(request *pb.UnityRequest, stream pb.SatCom_CommuW
 				return nil
 			}
 			if err != nil {
-				log.Fatalf("failed to send: %v\n", err)
+				log.Printf("failed to send: %v\n", err)
+				return nil
 			}
 		case <-timer.C:
 			return nil
@@ -205,6 +207,7 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 		// whenever receive a new message from channel find_new_target, send message to client
 		log.Printf("[satellite] target")
 
+		s.findTarget = in.FindTarget || s.findTarget
 		findNewTarget <- in.FindTarget || s.findTarget
 
 		go func() {
