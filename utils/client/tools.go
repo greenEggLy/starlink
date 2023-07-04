@@ -1,36 +1,39 @@
-package main
+package client
 
 import (
 	"fmt"
+	"math/rand"
 	"starlink/pb"
 	"strconv"
 	"time"
 )
 
-func createSatRequest(predictSec int) *pb.SatRequest {
+var randomGenerator = rand.New(rand.NewSource(time.Now().UnixNano()))
+
+func CreateSatRequest(predictSec int) *pb.SatRequest {
 	satInfo := pb.SatelliteInfo{
 		SatName:     "satellite-1",
-		SatPosition: generateOneLLAPos(0),
+		SatPosition: GenerateOneLLAPos(0),
 	}
 
 	msg := pb.SatRequest{
 		SatInfo:    &satInfo,
 		FindTarget: true,
-		TargetInfo: generateRandomTargetPos(predictSec),
+		TargetInfo: GenerateRandomTargetPos(predictSec),
 	}
 
 	return &msg
 }
 
-func createUnityRequestTemplate(predictSec int) *pb.UnityRequestTemplate {
+func CreateUnityRequestTemplate(predictSec int) *pb.UnityRequestTemplate {
 	msg := pb.UnityRequestTemplate{
 		FindTarget:     true,
-		TargetPosition: generateRandomTargetPos(predictSec),
+		TargetPosition: GenerateRandomTargetPos(predictSec),
 	}
 	return &msg
 }
 
-func generateOneLLAPos(timeStampSec int64) *pb.LLAPosition {
+func GenerateOneLLAPos(timeStampSec int64) *pb.LLAPosition {
 	pos := pb.LLAPosition{
 		Timestamp: fmt.Sprint(time.Now().Unix() + timeStampSec),
 		Alt:       randomGenerator.Float32(),
@@ -40,7 +43,7 @@ func generateOneLLAPos(timeStampSec int64) *pb.LLAPosition {
 	return &pos
 }
 
-func generateOneLLPos(timeStampSec int64) *pb.LLPosition {
+func GenerateOneLLPos(timeStampSec int64) *pb.LLPosition {
 	pos := pb.LLPosition{
 		Timestamp: fmt.Sprint(time.Now().Unix() + timeStampSec),
 		Lng:       randomGenerator.Float32(),
@@ -49,35 +52,35 @@ func generateOneLLPos(timeStampSec int64) *pb.LLPosition {
 	return &pos
 }
 
-func generateSatInfo() *pb.SatelliteInfo {
+func GenerateSatInfo() *pb.SatelliteInfo {
 	info := pb.SatelliteInfo{
 		SatName:     "satellite-1",
-		SatPosition: generateOneLLAPos(0),
+		SatPosition: GenerateOneLLAPos(0),
 	}
 	return &info
 }
 
-func generateRandomTargetPos(num int) []*pb.TargetInfo {
+func GenerateRandomTargetPos(num int) []*pb.TargetInfo {
 	ret := []*pb.TargetInfo{}
 	for i := 0; i < num; i++ {
 		ele := pb.TargetInfo{
 			TargetName:     "target1",
-			TargetPosition: generateOneLLAPos(int64(i)),
+			TargetPosition: GenerateOneLLAPos(int64(i)),
 		}
 		ret = append(ret, &ele)
 	}
 	return ret
 }
 
-func generateZoneInfo() *pb.ZoneInfo {
+func GenerateZoneInfo() *pb.ZoneInfo {
 	zone := pb.ZoneInfo{
-		UpperLeft:   generateOneLLPos(0),
-		BottomRight: generateOneLLPos(0),
+		UpperLeft:   GenerateOneLLPos(0),
+		BottomRight: GenerateOneLLPos(0),
 	}
 	return &zone
 }
 
-func getSatNames(list []*pb.SatelliteInfo) []string {
+func GetSatNames(list []*pb.SatelliteInfo) []string {
 	ret := []string{}
 	for _, v := range list {
 		ret = append(ret, v.SatName)
@@ -85,7 +88,7 @@ func getSatNames(list []*pb.SatelliteInfo) []string {
 	return ret
 }
 
-func getTimeStamp() string {
+func GetTimeStamp() string {
 	bytes := make([]byte, 0)
 	bytes = append(bytes, strconv.FormatInt(time.Now().Unix(), 10)...)
 	return string(bytes)

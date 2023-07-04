@@ -5,18 +5,17 @@ import (
 	"flag"
 	"io"
 	"log"
-	"math/rand"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "starlink/pb"
+	cli "starlink/utils/client"
 )
 
 var (
-	serverAddr      = flag.String("addr", "localhost:50051", "The server address in the format of host:port")
-	randomGenerator = rand.New(rand.NewSource(time.Now().UnixNano()))
+	serverAddr = flag.String("addr", "localhost:50051", "The server address in the format of host:port")
 )
 
 func main() {
@@ -79,8 +78,8 @@ func postAndReceive(client pb.SatComClient) {
 				image = append(image, "photo"...)
 
 				photoRequest := pb.SatPhotoRequest{
-					Timestamp: getTimeStamp(),
-					SatInfo:   generateSatInfo(),
+					Timestamp: cli.GetTimeStamp(),
+					SatInfo:   cli.GenerateSatInfo(),
 					Zone:      in.Zone[0],
 					ImageData: image,
 				}
@@ -115,7 +114,7 @@ func postAndReceive(client pb.SatComClient) {
 				// find target
 				// show warning on screen
 				// ...
-				names := getSatNames(in.TrackingSat)
+				names := cli.GetSatNames(in.TrackingSat)
 
 				log.Printf("[unity]:find target, position num: %d, satellite num: %d\n", len(in.TargetPosition), len(names))
 			} else {
@@ -130,20 +129,20 @@ func postAndReceive(client pb.SatComClient) {
 			select {
 			case <-satt.C:
 				// send satellite position info to server
-				msg := createSatRequest(3)
+				msg := cli.CreateSatRequest(3)
 				if err := sat_stream.Send(msg); err != nil {
 					log.Fatalf("satellite-base flow failed\n")
 				}
 
 			case <-unit.C:
 				// send unity position info to server
-				msg := createUnityRequestTemplate(3)
+				msg := cli.CreateUnityRequestTemplate(3)
 				if err := unity_stream.Send(msg); err != nil {
 					log.Fatalf("satellite-base flow failed\n")
 				}
 				request := pb.UnityPhotoRequest{
-					Timestamp: getTimeStamp(),
-					Zone:      generateZoneInfo(),
+					Timestamp: cli.GetTimeStamp(),
+					Zone:      cli.GenerateZoneInfo(),
 				}
 				go func() {
 					photoIn, err := client.SendPhotos(ctx, &request)

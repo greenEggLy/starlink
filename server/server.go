@@ -9,7 +9,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"sync"
 	"time"
 
 	"starlink/pb"
@@ -31,7 +30,7 @@ var findNewTarget = make(chan bool, 10)
 // expiredMap is thread-safe
 type server struct {
 	pb.UnimplementedSatComServer
-	mu          sync.RWMutex
+	// mu          sync.RWMutex
 	findTarget  bool
 	satNotes    *utils.ExpiredMap[string, pb.SatelliteInfo]
 	tarNotes    *utils.ExpiredMap[string, string]
@@ -41,6 +40,7 @@ type server struct {
 
 func newServer() *server {
 	s := &server{
+		findTarget:  false,
 		satNotes:    utils.NewExpiredMap[string, pb.SatelliteInfo](),
 		tarNotes:    utils.NewExpiredMap[string, string](),
 		photoNotes:  utils.NewExpiredMap[string, chan []byte](),
@@ -78,7 +78,7 @@ func (s *server) CommuWizUnity(request *pb.UnityRequest, stream pb.SatCom_CommuW
 		select {
 		case <-ticker.C:
 			msg := s.createBase2UnityMsg(s.findTarget)
-			err := stream.Send(msg)
+			err := stream.Send(&msg)
 			if err == io.EOF {
 				return nil
 			}
@@ -134,7 +134,7 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 			}
 
 			msg := s.createBase2UnityMsg(find)
-			err := stream.Send(msg)
+			err := stream.Send(&msg)
 
 			if err != nil {
 				log.Printf("[server]send to unity error, %v", err)
@@ -229,7 +229,7 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 			}
 
 			msg := s.createBase2SatMsg(find)
-			err := stream.Send(msg)
+			err := stream.Send(&msg)
 
 			if err != nil {
 				log.Printf("[server]send message error")

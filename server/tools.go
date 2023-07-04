@@ -19,16 +19,15 @@ func getAllTargetNames(targets []*pb.TargetInfo) []string {
 	return names
 }
 
-func (s *server) createBase2UnityMsg(hasTracking bool) *pb.Base2Unity {
+func (s *server) createBase2UnityMsg(hasTracking bool) pb.Base2Unity {
 	if !hasTracking {
 		msg := pb.Base2Unity{
 			FindTarget:     false,
 			TargetPosition: nil,
 			TrackingSat:    nil,
 		}
-		return &msg
+		return msg
 	}
-
 	// return information
 	targets := s.tarNotes.GetAll() // target names
 	sats := s.satNotes.GetAll()    // tracking satellites
@@ -44,18 +43,18 @@ func (s *server) createBase2UnityMsg(hasTracking bool) *pb.Base2Unity {
 			TargetPosition: nil,
 			TrackingSat:    nil,
 		}
-		return &msg
+		return msg
 	} else {
 		msg := pb.Base2Unity{
 			FindTarget:     true,
 			TargetPosition: notes,
 			TrackingSat:    sats,
 		}
-		return &msg
+		return msg
 	}
 }
 
-func (s *server) createBase2SatMsg(hasTracking bool) *pb.Base2Sat {
+func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 	basePosition := createBasePos()
 	var takePhoto = false
 	var zone []*pb.ZoneInfo
@@ -79,7 +78,7 @@ func (s *server) createBase2SatMsg(hasTracking bool) *pb.Base2Sat {
 			TakePhoto:    takePhoto,
 			Zone:         zone,
 		}
-		return &msg
+		return msg
 	}
 
 	targets := s.tarNotes.GetAll()
@@ -97,7 +96,7 @@ func (s *server) createBase2SatMsg(hasTracking bool) *pb.Base2Sat {
 			TakePhoto:    takePhoto,
 			Zone:         zone,
 		}
-		return &msg
+		return msg
 	} else {
 		msg := pb.Base2Sat{
 			FindTarget:   true,
@@ -106,7 +105,7 @@ func (s *server) createBase2SatMsg(hasTracking bool) *pb.Base2Sat {
 			TakePhoto:    takePhoto,
 			Zone:         zone,
 		}
-		return &msg
+		return msg
 	}
 }
 
