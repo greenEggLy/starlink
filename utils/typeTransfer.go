@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"log"
 	"regexp"
 	pb "starlink/pb"
 	"strconv"
@@ -15,10 +16,25 @@ func ZoneInfos2Strings(zoneInfos []*pb.ZoneInfo) []string {
 }
 
 func String2ZoneInfo(str string) *pb.ZoneInfo {
+	shouldIdentify := false
+	reBool := regexp.MustCompile(`request_identify:(true|false)`)
+	matchBool := reBool.FindStringSubmatch(str)
+
+	if matchBool[1] == "true" {
+		shouldIdentify = true
+	} else {
+		shouldIdentify = false
+	}
+
 	re := regexp.MustCompile(`[-+]?\d+(\.\d+)?`)
 	matches := re.FindAllString(str, -1)
 
 	var numbers []float64
+
+	if len(matches) != 6 {
+		log.Printf("zoneInfo format wrong, %v", str)
+		return nil
+	}
 
 	timestamp1 := matches[0]
 	timestamp2 := matches[3]
@@ -36,6 +52,7 @@ func String2ZoneInfo(str string) *pb.ZoneInfo {
 	br_lat := numbers[2]
 	br_lng := numbers[3]
 	zone := pb.ZoneInfo{
+		RequestIdentify: shouldIdentify,
 		UpperLeft: &pb.LLPosition{
 			Timestamp: timestamp1,
 			Lat:       float32(ul_lat),

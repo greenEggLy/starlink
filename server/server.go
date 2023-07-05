@@ -31,20 +31,20 @@ var findNewTarget = make(chan bool, 10)
 type server struct {
 	pb.UnimplementedSatComServer
 	// mu          sync.RWMutex
-	findTarget  bool
-	satNotes    *utils.ExpiredMap[string, pb.SatelliteInfo]
-	tarNotes    *utils.ExpiredMap[string, string]
-	photoNotes  *utils.ExpiredMap[string, chan []byte]
-	redisClient *utils.Redis
+	findTarget       bool
+	trackingSatNotes *utils.ExpiredMap[string, []string]    // [target_name, [satellite_name]]
+	tarNotes         *utils.ExpiredMap[string, string]      // [target_name, target_name]
+	photoNotes       *utils.ExpiredMap[string, chan []byte] // [zone_info, channel]
+	redisClient      *utils.Redis
 }
 
 func newServer() *server {
 	s := &server{
-		findTarget:  false,
-		satNotes:    utils.NewExpiredMap[string, pb.SatelliteInfo](),
-		tarNotes:    utils.NewExpiredMap[string, string](),
-		photoNotes:  utils.NewExpiredMap[string, chan []byte](),
-		redisClient: utils.NewRedis(60),
+		findTarget:       false,
+		trackingSatNotes: utils.NewExpiredMap[string, []string](),
+		tarNotes:         utils.NewExpiredMap[string, string](),
+		photoNotes:       utils.NewExpiredMap[string, chan []byte](),
+		redisClient:      utils.NewRedis(60),
 	}
 	return s
 }
@@ -78,7 +78,7 @@ func (s *server) CommuWizUnity(request *pb.UnityRequest, stream pb.SatCom_CommuW
 		select {
 		case <-ticker.C:
 			msg := s.createBase2UnityMsg(s.findTarget)
-			log.Printf("msg: %v", msg)
+			// log.Printf("msg: %v", msg)
 			err := stream.Send(&msg)
 			if err == io.EOF {
 				return nil
@@ -128,7 +128,7 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 				}
 				setOperations := async.Exec(func() bool {
 					for _, v := range in.TargetPosition {
-						s.redisClient.SetPosition(v)
+						s.redisClient.SetTarPos(v)
 					}
 					return true
 				})
@@ -169,7 +169,6 @@ func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_Send
 		s.photoNotes.Delete(zoneInfo.String())
 		err := stream.Send(&pb.BasePhotoResponse{
 			Timestamp: getTimeStamp(),
-			Zone:      zoneInfo,
 			ImageData: nil,
 		})
 		return err
@@ -178,7 +177,6 @@ func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_Send
 		s.photoNotes.Delete(zoneInfo.String())
 		err := stream.Send(&pb.BasePhotoResponse{
 			Timestamp: getTimeStamp(),
-			Zone:      zoneInfo,
 			ImageData: photo,
 		})
 		if err != nil {
@@ -212,23 +210,35 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 
 		go func() {
 			find := <-findNewTarget
+
+			// save satellite information to redis
+			// satInfo := in.SatInfo
+			s.redisClient.SetSatPos(*in.SatInfo)
+
 			// save info in satellite message
 			if in.FindTarget {
 				satInfo := in.SatInfo
-				s.satNotes.Set(satInfo.SatName, *satInfo, int64(60))
-				targets := getAllTargetNames(in.TargetInfo)
-				for _, v := range targets {
-					s.tarNotes.Set(v, v, int64(60))
-				}
-				setOperations := async.Exec(func() bool {
-					for _, v := range in.TargetInfo {
-						s.redisClient.SetPosition(v)
+				for _, targetInfo := range in.TargetInfo {
+					// save predicted target information
+					s.redisClient.SetTarPos(targetInfo)
+					// save target information
+					s.tarNotes.Set(targetInfo.TargetName, targetInfo.TargetName, int64(60))
+					// save tracking satellite information
+					exist, value := s.trackingSatNotes.Get(targetInfo.TargetName)
+					if exist {
+						for index, name := range value {
+							if name == satInfo.SatName {
+								break
+							}
+							if index == len(value)-1 {
+								value = append(value, satInfo.SatName)
+								s.trackingSatNotes.Set(targetInfo.TargetName, value, int64(60))
+							}
+						}
+					} else {
+						s.trackingSatNotes.Set(targetInfo.TargetName, []string{satInfo.SatName}, int64(60))
 					}
-					return true
-				})
-				_ = setOperations.Await()
-			} else {
-				s.satNotes.Delete(in.SatInfo.SatName)
+				}
 			}
 
 			msg := s.createBase2SatMsg(find)

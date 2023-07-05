@@ -1,26 +1,25 @@
 package utils
 
 import (
-	pb "starlink/pb"
 	"sync"
 	"time"
 )
 
-type val[V pb.SatelliteInfo | string | chan []byte] struct {
+type val[V []string | string | chan []byte] struct {
 	data        V
 	expiredVime int64
 }
 
 const delChannelCap = 100
 
-type ExpiredMap[K string, V pb.SatelliteInfo | string | chan []byte] struct {
+type ExpiredMap[K string, V []string | string | chan []byte] struct {
 	m       map[K]*val[V]
 	timeMap map[int64][]K
 	lck     *sync.Mutex
 	stop    chan struct{}
 }
 
-func NewExpiredMap[K string, V pb.SatelliteInfo | string | chan []byte]() *ExpiredMap[K, V] {
+func NewExpiredMap[K string, V []string | string | chan []byte]() *ExpiredMap[K, V] {
 	e := ExpiredMap[K, V]{
 		m:       make(map[K]*val[V]),
 		lck:     new(sync.Mutex),
@@ -31,7 +30,7 @@ func NewExpiredMap[K string, V pb.SatelliteInfo | string | chan []byte]() *Expir
 	return &e
 }
 
-type delMsg[K string, V pb.SatelliteInfo | string | chan []byte] struct {
+type delMsg[K string, V []string | string | chan []byte] struct {
 	keys []K
 	t    int64
 }
@@ -72,12 +71,12 @@ func (e *ExpiredMap[K, V]) Set(key K, value V, expireSeconds int64) {
 	}
 	e.lck.Lock()
 	defer e.lck.Unlock()
-	expiredVime := time.Now().Unix() + expireSeconds
+	expiredTime := time.Now().Unix() + expireSeconds
 	e.m[key] = &val[V]{
 		data:        value,
-		expiredVime: expiredVime,
+		expiredVime: expiredTime,
 	}
-	e.timeMap[expiredVime] = append(e.timeMap[expiredVime], key) //过期时间作为key，放在map中
+	e.timeMap[expiredTime] = append(e.timeMap[expiredTime], key) //过期时间作为key，放在map中
 }
 
 func (e *ExpiredMap[K, V]) Get(key K) (found bool, value V) {
@@ -185,10 +184,10 @@ func (e *ExpiredMap[K, V]) checkDeleteKey(key K) bool {
 }
 
 // get all data
-func (e *ExpiredMap[K, V]) GetAll() []*V {
+func (e *ExpiredMap[K, V]) GetAll() []V {
 	e.lck.Lock()
 	defer e.lck.Unlock()
-	m := []*V{}
+	m := []V{}
 	for k, v := range e.m {
 		if !e.checkDeleteKey(k) {
 			continue
@@ -196,9 +195,25 @@ func (e *ExpiredMap[K, V]) GetAll() []*V {
 		if v == nil {
 			continue
 		}
-		m = append(m, &v.data)
+		m = append(m, v.data)
 	}
 	return m
+}
+
+func (e *ExpiredMap[K, V]) GetMapAll() map[K]V {
+	e.lck.Lock()
+	defer e.lck.Unlock()
+	result := make(map[K]V)
+	for k, v := range e.m {
+		if !e.checkDeleteKey(k) {
+			continue
+		}
+		if v == nil {
+			continue
+		}
+		result[k] = v.data
+	}
+	return result
 }
 
 func (e *ExpiredMap[K, V]) GetAllKeys() []K {

@@ -24,7 +24,7 @@ const _ = grpc.SupportPackageIsVersion7
 type SatComClient interface {
 	// satellite时刻广播自己的位置, base返回目标信息以及是否有照片请求
 	// request: 卫星信息, 是否发现目标, 目标位置信息
-	// response: 基站位置, 是否发现目标, 目标位置信息, 是否有拍照请求, 请求拍照区域
+	// response: 基站位置, 是否发现目标, 目标位置信息, 是否有拍照请求, 请求拍照区域，是否有识别请求
 	CommuWizSat(ctx context.Context, opts ...grpc.CallOption) (SatCom_CommuWizSatClient, error)
 	// satellite拍摄完成后发起请求, base接受照片信息并返回是否成功接收
 	// request: 时间戳, 卫星信息, 区域信息, 照片信息
@@ -38,7 +38,7 @@ type SatComClient interface {
 	CommuWizUnity(ctx context.Context, in *UnityRequest, opts ...grpc.CallOption) (SatCom_CommuWizUnityClient, error)
 	// unity向基站发送请求照片的信息，基站返回照片
 	// request: 时间戳(string) 区域信息(左上右下LL坐标)
-	// response: 时间戳(string) 区域信息(左上右下LL坐标) 照片信息([]byte)
+	// response: 时间戳(string) 照片信息([]byte)
 	SendPhotos(ctx context.Context, in *UnityPhotoRequest, opts ...grpc.CallOption) (SatCom_SendPhotosClient, error)
 }
 
@@ -191,7 +191,7 @@ func (x *satComSendPhotosClient) Recv() (*BasePhotoResponse, error) {
 type SatComServer interface {
 	// satellite时刻广播自己的位置, base返回目标信息以及是否有照片请求
 	// request: 卫星信息, 是否发现目标, 目标位置信息
-	// response: 基站位置, 是否发现目标, 目标位置信息, 是否有拍照请求, 请求拍照区域
+	// response: 基站位置, 是否发现目标, 目标位置信息, 是否有拍照请求, 请求拍照区域，是否有识别请求
 	CommuWizSat(SatCom_CommuWizSatServer) error
 	// satellite拍摄完成后发起请求, base接受照片信息并返回是否成功接收
 	// request: 时间戳, 卫星信息, 区域信息, 照片信息
@@ -205,7 +205,7 @@ type SatComServer interface {
 	CommuWizUnity(*UnityRequest, SatCom_CommuWizUnityServer) error
 	// unity向基站发送请求照片的信息，基站返回照片
 	// request: 时间戳(string) 区域信息(左上右下LL坐标)
-	// response: 时间戳(string) 区域信息(左上右下LL坐标) 照片信息([]byte)
+	// response: 时间戳(string) 照片信息([]byte)
 	SendPhotos(*UnityPhotoRequest, SatCom_SendPhotosServer) error
 	mustEmbedUnimplementedSatComServer()
 }

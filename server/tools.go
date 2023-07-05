@@ -22,33 +22,41 @@ func getAllTargetNames(targets []*pb.TargetInfo) []string {
 func (s *server) createBase2UnityMsg(hasTracking bool) pb.Base2Unity {
 	if !hasTracking {
 		msg := pb.Base2Unity{
-			FindTarget:     false,
-			TargetPosition: nil,
-			TrackingSat:    nil,
+			FindTarget:       false,
+			TargetPosition:   nil,
+			TargetSatellites: nil,
 		}
 		return msg
 	}
 	// return information
-	targets := s.tarNotes.GetAll() // target names
-	sats := s.satNotes.GetAll()    // tracking satellites
-	notes := s.redisClient.GetAllPos(targets)
+	targets := s.tarNotes.GetAll()                // target names
+	target_sats := s.trackingSatNotes.GetMapAll() // tracking satellites
+	notes := s.redisClient.GetAllTarPos(targets)
 
-	if len(notes) == 0 {
+	if len(notes) == 0 || len(target_sats) == 0 {
 		s.findTarget = false
 		msg := pb.Base2Unity{
-			FindTarget:     false,
-			TargetPosition: nil,
-			TrackingSat:    nil,
-		}
-		return msg
-	} else {
-		msg := pb.Base2Unity{
-			FindTarget:     true,
-			TargetPosition: notes,
-			TrackingSat:    sats,
+			FindTarget:       false,
+			TargetPosition:   nil,
+			TargetSatellites: nil,
 		}
 		return msg
 	}
+
+	targetSatellitesMap := make(map[string]*pb.TrackingSatellites)
+	for k, v := range target_sats {
+		pos := s.redisClient.GetSelectedSatPos(v)
+		targetSatellitesMap[k] = &pb.TrackingSatellites{
+			Satellite: pos,
+		}
+	}
+
+	msg := pb.Base2Unity{
+		FindTarget:       true,
+		TargetPosition:   notes,
+		TargetSatellites: targetSatellitesMap,
+	}
+	return msg
 }
 
 func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
@@ -80,7 +88,7 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 
 	targets := s.tarNotes.GetAll()
 	positionNotes := async.Exec(func() []*pb.TargetInfo {
-		return s.redisClient.GetAllPos(targets)
+		return s.redisClient.GetAllTarPos(targets)
 	})
 	notes := positionNotes.Await()
 

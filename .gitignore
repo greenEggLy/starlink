@@ -3,6 +3,8 @@
 utils/solutions/
 utils/gpredict/
 legacy
+/utils/serialize/
+/utils/etcd/
 # go.sum
 
 *.sql

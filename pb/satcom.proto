@@ -7,7 +7,7 @@ option go_package = "starlink/pb";
 service SatCom{
     // satellite时刻广播自己的位置, base返回目标信息以及是否有照片请求
     // request: 卫星信息, 是否发现目标, 目标位置信息
-    // response: 基站位置, 是否发现目标, 目标位置信息, 是否有拍照请求, 请求拍照区域
+    // response: 基站位置, 是否发现目标, 目标位置信息, 是否有拍照请求, 请求拍照区域，是否有识别请求
     rpc CommuWizSat(stream SatRequest) returns (stream Base2Sat);
 
     // satellite拍摄完成后发起请求, base接受照片信息并返回是否成功接收
@@ -25,7 +25,7 @@ service SatCom{
 
     // unity向基站发送请求照片的信息，基站返回照片
     // request: 时间戳(string) 区域信息(左上右下LL坐标)
-    // response: 时间戳(string) 区域信息(左上右下LL坐标) 照片信息([]byte)
+    // response: 时间戳(string) 照片信息([]byte)
     rpc SendPhotos(UnityPhotoRequest) returns (stream BasePhotoResponse);
 
 }
@@ -55,6 +55,7 @@ message TargetInfo{
 
 // zone information: includng upper left and bottom right LL position
 message ZoneInfo {
+    bool request_identify = 1;
     LLPosition upper_left = 2;
     LLPosition bottom_right = 3;
 }
@@ -112,11 +113,15 @@ message UnityRequest_template{
     repeated TargetInfo target_position = 2;
 }
 
+message TrackingSatellites{
+    repeated SatelliteInfo satellite = 1;
+}
+
 // response in CommuWizUnity
 message Base2Unity{
     bool find_target = 1;
     repeated TargetInfo target_position = 2;
-    repeated SatelliteInfo tracking_sat = 3;
+    map<string, TrackingSatellites> target_satellites = 3;
 }
 
 // request in SendPhotos
@@ -128,6 +133,5 @@ message UnityPhotoRequest{
 // response in SendPhotos
 message BasePhotoResponse{
     string timestamp = 1;
-    ZoneInfo zone = 2;
-    bytes image_data = 3;
+    bytes image_data = 2;
 }

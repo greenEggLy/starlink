@@ -33,7 +33,7 @@ func NewRedis(expire_seconds ...int) *Redis {
 	return r
 }
 
-func (r *Redis) SetPosition(value *pb.TargetInfo) {
+func (r *Redis) SetTarPos(value *pb.TargetInfo) {
 	// log.Printf("[redis] set position, timestamp: %s", value.Timestamp)
 	ts, err1 := strconv.ParseInt(value.TargetPosition.Timestamp, 10, 64)
 	if err1 != nil {
@@ -54,14 +54,14 @@ func (r *Redis) SetPosition(value *pb.TargetInfo) {
 }
 
 // get all positions by target name and timestamp
-func (r *Redis) GetAllPos(targetNames []*string) []*pb.TargetInfo {
+func (r *Redis) GetAllTarPos(targetNames []string) []*pb.TargetInfo {
 	var pos []*pb.TargetInfo
 	time_now := time.Now().Unix()
 	r.m.Lock()
 	for _, name := range targetNames {
 		for ts := time_now; ts <= r.maxTimeStamp; ts++ {
 			// key in format: "targetName-timestamp"
-			key := r.appendString(*name, ts)
+			key := r.appendString(name, ts)
 
 			value, err := r.client.HGetAll(context.Background(), key).Result()
 			if err != nil {
@@ -83,7 +83,7 @@ func (r *Redis) GetAllPos(targetNames []*string) []*pb.TargetInfo {
 				Lng:       float32(lng),
 			}
 			p := pb.TargetInfo{
-				TargetName:     *name,
+				TargetName:     name,
 				TargetPosition: &p_lla,
 			}
 			pos = append(pos, &p)
@@ -91,6 +91,52 @@ func (r *Redis) GetAllPos(targetNames []*string) []*pb.TargetInfo {
 		}
 	}
 	r.m.Unlock()
+	return pos
+}
+
+// set satellite position
+func (r *Redis) SetSatPos(value pb.SatelliteInfo) {
+	r.m.Lock()
+	defer r.m.Unlock()
+	now_time := time.Now()
+	expire_time := now_time.Add(time.Duration(r.expire_sec) * time.Second)
+	key := value.SatName
+	r.client.HSet(context.Background(), key, "ALT", value.SatPosition.Alt, "LAT", value.SatPosition.Lat, "LNG", value.SatPosition.Lng, "TS", now_time.Unix())
+	r.client.ExpireAt(context.Background(), key, expire_time)
+}
+
+// get all positions by satellite name
+func (r *Redis) GetSelectedSatPos(satNames []string) []*pb.SatelliteInfo {
+	var pos []*pb.SatelliteInfo
+	r.m.Lock()
+	defer r.m.Unlock()
+	for _, name := range satNames {
+		value, err := r.client.HGetAll(context.Background(), name).Result()
+		if err != nil {
+			continue
+		}
+		if value["ALT"] == "" || value["LAT"] == "" || value["LNG"] == "" || value["TS"] == "" {
+			continue
+		}
+		alt, err1 := strconv.ParseFloat(value["ALT"], 32)
+		lat, err2 := strconv.ParseFloat(value["LAT"], 32)
+		lng, err3 := strconv.ParseFloat(value["LNG"], 32)
+		ts := value["TS"]
+		if err1 != nil || err2 != nil || err3 != nil {
+			panic("cannot parse position info")
+		}
+		p_lla := pb.LLAPosition{
+			Timestamp: ts,
+			Alt:       float32(alt),
+			Lat:       float32(lat),
+			Lng:       float32(lng),
+		}
+		p := pb.SatelliteInfo{
+			SatName:     name,
+			SatPosition: &p_lla,
+		}
+		pos = append(pos, &p)
+	}
 	return pos
 }
 

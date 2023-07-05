@@ -25,6 +25,13 @@ func CreateSatRequest(predictSec int) *pb.SatRequest {
 	return &msg
 }
 
+func CreateUnityRequest() pb.UnityRequest {
+	msg := pb.UnityRequest{
+		StatusOk: true,
+	}
+	return msg
+}
+
 func CreateUnityRequestTemplate(predictSec int) *pb.UnityRequestTemplate {
 	msg := pb.UnityRequestTemplate{
 		FindTarget:     true,
