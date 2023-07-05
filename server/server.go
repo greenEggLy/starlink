@@ -96,55 +96,6 @@ func (s *server) CommuWizUnity(request *pb.UnityRequest, stream pb.SatCom_CommuW
 	}
 }
 
-// server <-> Unity [target]
-func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTemplateServer) error {
-	for {
-		in, err := stream.Recv()
-		if err == io.EOF {
-			return nil
-		}
-		errStatus, _ := status.FromError(err)
-		if errStatus.Code() == 1 {
-			log.Printf("stream cancelled")
-			return nil
-		}
-		if err != nil {
-			log.Fatalf("failed to receive: %v\n", err)
-		}
-		// if unity find target, then save in redis
-		findNewTarget <- in.FindTarget || s.findTarget
-		go func() {
-			find := <-findNewTarget
-			log.Printf("[unity] target")
-			if in.FindTarget {
-				// handle information from unity
-				s.findTarget = true
-				// save tracking target information
-				targetNames := getAllTargetNames(in.TargetPosition)
-				for _, v := range targetNames {
-					s.tarNotes.Set(v, v, 60)
-				}
-				setOperations := async.Exec(func() bool {
-					for _, v := range in.TargetPosition {
-						s.redisClient.SetPosition(v)
-					}
-					return true
-				})
-				_ = setOperations.Await()
-			}
-
-			msg := s.createBase2UnityMsg(find)
-			err := stream.Send(&msg)
-
-			if err != nil {
-				log.Printf("[server]send to unity error, %v", err)
-				grpc.WithReturnConnectionError()
-			}
-		}()
-
-	}
-}
-
 // server <-> Unity [photo]
 func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_SendPhotosServer) error {
 	timeoutSec := 5
@@ -167,7 +118,6 @@ func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_Send
 		s.photoNotes.Delete(zoneInfo.String())
 		err := stream.Send(&pb.BasePhotoResponse{
 			Timestamp: getTimeStamp(),
-			Zone:      zoneInfo,
 			ImageData: nil,
 		})
 		return err
@@ -176,7 +126,6 @@ func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_Send
 		s.photoNotes.Delete(zoneInfo.String())
 		err := stream.Send(&pb.BasePhotoResponse{
 			Timestamp: getTimeStamp(),
-			Zone:      zoneInfo,
 			ImageData: photo,
 		})
 		if err != nil {
@@ -236,7 +185,6 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 				grpc.WithReturnConnectionError()
 			}
 		}()
-
 	}
 }
 

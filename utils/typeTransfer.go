@@ -20,10 +20,11 @@ func String2ZoneInfo(str string) *pb.ZoneInfo {
 
 	var numbers []float64
 
-	timestamp1 := matches[0]
-	timestamp2 := matches[3]
+	request_identify := matches[0]
+	timestamp1 := matches[1]
+	timestamp2 := matches[4]
 	for index, match := range matches {
-		if index == 0 || index == 3 {
+		if index == 0 || index == 1 || index == 4 {
 			continue
 		}
 		num, err := strconv.ParseFloat(match, 64)
@@ -36,6 +37,7 @@ func String2ZoneInfo(str string) *pb.ZoneInfo {
 	br_lat := numbers[2]
 	br_lng := numbers[3]
 	zone := pb.ZoneInfo{
+		RequestIdentify: request_identify,
 		UpperLeft: &pb.LLPosition{
 			Timestamp: timestamp1,
 			Lat:       float32(ul_lat),
