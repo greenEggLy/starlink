@@ -11,13 +11,13 @@ func main() {
 		RequestIdentify: true,
 		UpperLeft: &pb.LLPosition{
 			Timestamp: "333",
-			Lat:       30,
+			Lat:       30.11,
 			Lng:       120,
 		},
 		BottomRight: &pb.LLPosition{
 			Timestamp: "444",
 			Lat:       20,
-			Lng:       110,
+			Lng:       110.222,
 		},
 	}
 	str := zone.String()

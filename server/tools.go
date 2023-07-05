@@ -117,9 +117,8 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 func createBasePos() pb.LLPosition {
 	pos := pb.LLPosition{
 		Timestamp: fmt.Sprint(time.Now().Unix()),
-		// Alt:       30,
-		Lat: 30,
-		Lng: 30,
+		Lat:       30,
+		Lng:       30,
 	}
 	return pos
 }
