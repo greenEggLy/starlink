@@ -34,7 +34,9 @@ func (s *server) createBase2UnityMsg(hasTracking bool) pb.Base2Unity {
 	notes := s.redisClient.GetAllTarPos(targets)
 
 	if len(notes) == 0 || len(target_sats) == 0 {
+		s.mu.Lock()
 		s.findTarget = false
+		s.mu.Unlock()
 		msg := pb.Base2Unity{
 			FindTarget:       false,
 			TargetPosition:   nil,
@@ -93,7 +95,9 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 	notes := positionNotes.Await()
 
 	if len(notes) == 0 {
+		s.mu.Lock()
 		s.findTarget = false
+		s.mu.Unlock()
 		msg := pb.Base2Sat{
 			FindTarget:   false,
 			BasePosition: &basePosition,

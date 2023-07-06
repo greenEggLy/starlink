@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 	"time"
 
 	"starlink/pb"
@@ -30,7 +31,7 @@ var findNewTarget = make(chan bool, 10)
 // expiredMap is thread-safe
 type server struct {
 	pb.UnimplementedSatComServer
-	// mu          sync.RWMutex
+	mu               sync.RWMutex
 	findTarget       bool
 	trackingSatNotes *utils.ExpiredMap[string, []string]    // [target_name, [satellite_name]]
 	tarNotes         *utils.ExpiredMap[string, string]      // [target_name, target_name]
@@ -70,81 +71,45 @@ func (s *server) CommuWizUnity(request *pb.UnityRequest, stream pb.SatCom_CommuW
 	log.Printf("[unity] display\n")
 	// a ticker sending unmessage every half second
 	// a timer for 10 seconds
+	var timer *time.Timer
+	Deadline, Ok := stream.Context().Deadline()
+	if Ok {
+		timer = time.NewTimer(time.Until(Deadline))
+	} else {
+		timer = time.NewTimer(10 * time.Second)
+	}
 	ticker := time.NewTicker(500 * time.Millisecond)
-	timer := time.NewTimer(10 * time.Second)
 	defer ticker.Stop()
 	defer timer.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			msg := s.createBase2UnityMsg(s.findTarget)
-			// log.Printf("msg: %v", msg)
-			err := stream.Send(&msg)
-			if err == io.EOF {
-				return nil
-			}
-			errStatus, _ := status.FromError(err)
-			if errStatus.Code() == 1 {
-				log.Printf("request cancelled")
-				return nil
-			}
-			if err != nil {
-				log.Printf("failed to send: %v\n", err)
-				return nil
-			}
-		case <-timer.C:
-			return nil
-		}
-	}
-}
-
-// server <-> Unity [target]
-func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTemplateServer) error {
-	for {
-		in, err := stream.Recv()
-		if err == io.EOF {
-			return nil
-		}
-		errStatus, _ := status.FromError(err)
-		if errStatus.Code() == 1 {
-			log.Printf("stream cancelled")
-			return nil
-		}
-		if err != nil {
-			log.Fatalf("failed to receive: %v\n", err)
-		}
-		// if unity find target, then save in redis
-		findNewTarget <- in.FindTarget || s.findTarget
-		go func() {
-			find := <-findNewTarget
-			log.Printf("[unity] target")
-			if in.FindTarget {
-				// handle information from unity
-				s.findTarget = true
-				// save tracking target information
-				targetNames := getAllTargetNames(in.TargetPosition)
-				for _, v := range targetNames {
-					s.tarNotes.Set(v, v, 60)
+	waitC := make(chan struct{})
+	go func(ticker *time.Ticker, timer *time.Timer) error {
+		for {
+			select {
+			case <-ticker.C:
+				s.mu.Lock()
+				status := s.findTarget
+				s.mu.Unlock()
+				log.Printf("[unity] send status: %v", status)
+				msg := s.createBase2UnityMsg(status)
+				// log.Printf("msg: %v", msg)
+				err := stream.Send(&msg)
+				if err == io.EOF {
+					waitC <- struct{}{}
+					return nil
 				}
-				setOperations := async.Exec(func() bool {
-					for _, v := range in.TargetPosition {
-						s.redisClient.SetTarPos(v)
-					}
-					return true
-				})
-				_ = setOperations.Await()
+				if err != nil {
+					log.Printf("failed to send: %v\n", err)
+					waitC <- struct{}{}
+					return nil
+				}
+			case <-timer.C:
+				waitC <- struct{}{}
+				return nil
 			}
-
-			msg := s.createBase2UnityMsg(find)
-			err := stream.Send(&msg)
-
-			if err != nil {
-				log.Printf("[server]send to unity error, %v", err)
-				grpc.WithReturnConnectionError()
-			}
-		}()
-
-	}
+		}
+	}(ticker, timer)
+	<-waitC
+	return nil
 }
 
 // server <-> Unity [photo]
@@ -203,14 +168,17 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 			return err
 		}
 		// whenever receive a new message from channel find_new_target, send message to client
-		log.Printf("[satellite] target")
+		log.Printf("[satellite] target, find target: %v", in.FindTarget || s.findTarget)
 
-		s.findTarget = in.FindTarget || s.findTarget
-		findNewTarget <- in.FindTarget || s.findTarget
-
+		s.mu.Lock()
+		status := in.FindTarget || s.findTarget
+		if s.findTarget != status {
+			s.findTarget = status
+			log.Printf("%v", s.findTarget)
+		}
+		s.mu.Unlock()
+		waitC := make(chan struct{})
 		go func() {
-			find := <-findNewTarget
-
 			// save satellite information to redis
 			// satInfo := in.SatInfo
 			s.redisClient.SetSatPos(*in.SatInfo)
@@ -240,16 +208,20 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 					}
 				}
 			}
-
-			msg := s.createBase2SatMsg(find)
+			s.mu.Lock()
+			status := s.findTarget
+			s.mu.Unlock()
+			msg := s.createBase2SatMsg(status)
 			err := stream.Send(&msg)
-
 			if err != nil {
-				log.Printf("[server]send message error")
+				log.Printf("[server]send message error, %v", err)
+				waitC <- struct{}{}
 				grpc.WithReturnConnectionError()
+				return
 			}
+			waitC <- struct{}{}
 		}()
-
+		<-waitC
 	}
 }
 
@@ -276,4 +248,54 @@ func (s *server) TakePhotos(ctx context.Context, request *pb.SatPhotoRequest) (*
 		Timestamp:    getTimeStamp(),
 		ReceivePhoto: true,
 	}, nil
+}
+
+// server <-> Unity [target]
+// legacy, not used
+func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTemplateServer) error {
+	for {
+		in, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		errStatus, _ := status.FromError(err)
+		if errStatus.Code() == 1 {
+			log.Printf("stream cancelled")
+			return nil
+		}
+		if err != nil {
+			log.Fatalf("failed to receive: %v\n", err)
+		}
+		// if unity find target, then save in redis
+		findNewTarget <- in.FindTarget || s.findTarget
+		go func() {
+			find := <-findNewTarget
+			log.Printf("[unity] target")
+			if in.FindTarget {
+				// handle information from unity
+				s.findTarget = true
+				// save tracking target information
+				targetNames := getAllTargetNames(in.TargetPosition)
+				for _, v := range targetNames {
+					s.tarNotes.Set(v, v, 60)
+				}
+				setOperations := async.Exec(func() bool {
+					for _, v := range in.TargetPosition {
+						s.redisClient.SetTarPos(v)
+					}
+					return true
+				})
+				_ = setOperations.Await()
+			}
+
+			msg := s.createBase2UnityMsg(find)
+			err := stream.Send(&msg)
+
+			if err != nil {
+				log.Printf("[server]send to unity error, %v", err)
+				grpc.WithReturnConnectionError()
+			}
+		}()
+
+	}
 }

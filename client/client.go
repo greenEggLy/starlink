@@ -44,7 +44,7 @@ func postAndReceive(client pb.SatComClient) {
 	// two tickers
 	satTicker := time.NewTicker(1 * time.Second)
 	defer satTicker.Stop()
-	unityTicker := time.NewTicker(1 * time.Second)
+	unityTicker := time.NewTicker(10 * time.Second)
 	defer unityTicker.Stop()
 	// needPhotoRequestNum := 0
 	// one timer
@@ -53,6 +53,7 @@ func postAndReceive(client pb.SatComClient) {
 	// wait for both stream end
 	waitc := make(chan struct{})
 	waitc2 := make(chan struct{})
+	// receive message
 	// sat-base
 	go func() error {
 		for {
@@ -114,7 +115,7 @@ func postAndReceive(client pb.SatComClient) {
 				// find target
 				// show warning on screen
 				// ...
-				log.Printf("message: %v", in.TargetSatellites)
+				log.Printf("[unity]:has target")
 			} else {
 				log.Printf("[unity]:no target")
 			}
@@ -134,7 +135,9 @@ func postAndReceive(client pb.SatComClient) {
 
 			case <-unit.C:
 				// send unity position info to server
-
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				client.CommuWizUnity(ctx, &pb.UnityRequest{StatusOk: true})
+				cancel()
 				// msg := cli.CreateUnityRequestTemplate(3)
 				// if err := unity_stream.Send(msg); err != nil {
 				// 	log.Fatalf("satellite-base flow failed\n")
