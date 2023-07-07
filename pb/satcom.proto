@@ -15,13 +15,18 @@ service SatCom{
     // response: 时间戳, 是否成功收到照片
     rpc TakePhotos(SatPhotoRequest) returns (BasePhotoReceiveResponse);
 
-    // 可以用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
+    // NOTICE: 不再用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
     rpc ReceiveFromUnity_template(stream UnityRequest_template) returns (stream Base2Unity);
 
     // unity端发起请求, base在一段时间内进行持续响应
     // request: unity端状态(bool)
     // response: 是否有目标(bool), 目标信息(目标名和LLA坐标), 追踪卫星信息(卫星名和LLA坐标)
     rpc CommuWizUnity(UnityRequest) returns (stream Base2Unity);
+
+    // unity端发起请求, base返回所有卫星信息
+    // request: 卫星名
+    // response: 卫星信息
+    rpc SelectSatellites(UnitySatellitesRequest) returns (stream Base2UnitySatellites);
 
     // unity向基站发送请求照片的信息，基站返回照片
     // request: 时间戳(string) 区域信息(左上右下LL坐标)
@@ -134,4 +139,14 @@ message UnityPhotoRequest{
 message BasePhotoResponse{
     string timestamp = 1;
     bytes image_data = 2;
+}
+
+// 先留着这个字段，或许之后要用，不管发什么都会返回所有的卫星信息
+message UnitySatellitesRequest{
+    repeated string satellite_name = 1;
+}
+
+message Base2UnitySatellites{
+    string timestamp = 1;
+    repeated SatelliteInfo satellites = 2;
 }

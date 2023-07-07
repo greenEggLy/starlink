@@ -30,12 +30,16 @@ type SatComClient interface {
 	// request: 时间戳, 卫星信息, 区域信息, 照片信息
 	// response: 时间戳, 是否成功收到照片
 	TakePhotos(ctx context.Context, in *SatPhotoRequest, opts ...grpc.CallOption) (*BasePhotoReceiveResponse, error)
-	// 可以用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
+	// NOTICE: 不再用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
 	ReceiveFromUnityTemplate(ctx context.Context, opts ...grpc.CallOption) (SatCom_ReceiveFromUnityTemplateClient, error)
 	// unity端发起请求, base在一段时间内进行持续响应
 	// request: unity端状态(bool)
 	// response: 是否有目标(bool), 目标信息(目标名和LLA坐标), 追踪卫星信息(卫星名和LLA坐标)
 	CommuWizUnity(ctx context.Context, in *UnityRequest, opts ...grpc.CallOption) (SatCom_CommuWizUnityClient, error)
+	// unity端发起请求, base返回所有卫星信息
+	// request: 卫星名
+	// response: 卫星信息
+	SelectSatellites(ctx context.Context, in *UnitySatellitesRequest, opts ...grpc.CallOption) (SatCom_SelectSatellitesClient, error)
 	// unity向基站发送请求照片的信息，基站返回照片
 	// request: 时间戳(string) 区域信息(左上右下LL坐标)
 	// response: 时间戳(string) 照片信息([]byte)
@@ -153,8 +157,40 @@ func (x *satComCommuWizUnityClient) Recv() (*Base2Unity, error) {
 	return m, nil
 }
 
+func (c *satComClient) SelectSatellites(ctx context.Context, in *UnitySatellitesRequest, opts ...grpc.CallOption) (SatCom_SelectSatellitesClient, error) {
+	stream, err := c.cc.NewStream(ctx, &SatCom_ServiceDesc.Streams[3], "/commu.SatCom/SelectSatellites", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &satComSelectSatellitesClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type SatCom_SelectSatellitesClient interface {
+	Recv() (*Base2UnitySatellites, error)
+	grpc.ClientStream
+}
+
+type satComSelectSatellitesClient struct {
+	grpc.ClientStream
+}
+
+func (x *satComSelectSatellitesClient) Recv() (*Base2UnitySatellites, error) {
+	m := new(Base2UnitySatellites)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func (c *satComClient) SendPhotos(ctx context.Context, in *UnityPhotoRequest, opts ...grpc.CallOption) (SatCom_SendPhotosClient, error) {
-	stream, err := c.cc.NewStream(ctx, &SatCom_ServiceDesc.Streams[3], "/commu.SatCom/SendPhotos", opts...)
+	stream, err := c.cc.NewStream(ctx, &SatCom_ServiceDesc.Streams[4], "/commu.SatCom/SendPhotos", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -197,12 +233,16 @@ type SatComServer interface {
 	// request: 时间戳, 卫星信息, 区域信息, 照片信息
 	// response: 时间戳, 是否成功收到照片
 	TakePhotos(context.Context, *SatPhotoRequest) (*BasePhotoReceiveResponse, error)
-	// 可以用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
+	// NOTICE: 不再用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
 	ReceiveFromUnityTemplate(SatCom_ReceiveFromUnityTemplateServer) error
 	// unity端发起请求, base在一段时间内进行持续响应
 	// request: unity端状态(bool)
 	// response: 是否有目标(bool), 目标信息(目标名和LLA坐标), 追踪卫星信息(卫星名和LLA坐标)
 	CommuWizUnity(*UnityRequest, SatCom_CommuWizUnityServer) error
+	// unity端发起请求, base返回所有卫星信息
+	// request: 卫星名
+	// response: 卫星信息
+	SelectSatellites(*UnitySatellitesRequest, SatCom_SelectSatellitesServer) error
 	// unity向基站发送请求照片的信息，基站返回照片
 	// request: 时间戳(string) 区域信息(左上右下LL坐标)
 	// response: 时间戳(string) 照片信息([]byte)
@@ -225,6 +265,9 @@ func (UnimplementedSatComServer) ReceiveFromUnityTemplate(SatCom_ReceiveFromUnit
 }
 func (UnimplementedSatComServer) CommuWizUnity(*UnityRequest, SatCom_CommuWizUnityServer) error {
 	return status.Errorf(codes.Unimplemented, "method CommuWizUnity not implemented")
+}
+func (UnimplementedSatComServer) SelectSatellites(*UnitySatellitesRequest, SatCom_SelectSatellitesServer) error {
+	return status.Errorf(codes.Unimplemented, "method SelectSatellites not implemented")
 }
 func (UnimplementedSatComServer) SendPhotos(*UnityPhotoRequest, SatCom_SendPhotosServer) error {
 	return status.Errorf(codes.Unimplemented, "method SendPhotos not implemented")
@@ -333,6 +376,27 @@ func (x *satComCommuWizUnityServer) Send(m *Base2Unity) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _SatCom_SelectSatellites_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(UnitySatellitesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SatComServer).SelectSatellites(m, &satComSelectSatellitesServer{stream})
+}
+
+type SatCom_SelectSatellitesServer interface {
+	Send(*Base2UnitySatellites) error
+	grpc.ServerStream
+}
+
+type satComSelectSatellitesServer struct {
+	grpc.ServerStream
+}
+
+func (x *satComSelectSatellitesServer) Send(m *Base2UnitySatellites) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 func _SatCom_SendPhotos_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(UnityPhotoRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -382,6 +446,11 @@ var SatCom_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "CommuWizUnity",
 			Handler:       _SatCom_CommuWizUnity_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SelectSatellites",
+			Handler:       _SatCom_SelectSatellites_Handler,
 			ServerStreams: true,
 		},
 		{

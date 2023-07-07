@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	pb "starlink/pb"
 	"starlink/utils"
 	"starlink/utils/async"
+	cli "starlink/utils/client"
 	"strconv"
 	"time"
 )
@@ -63,7 +66,7 @@ func (s *server) createBase2UnityMsg(hasTracking bool) pb.Base2Unity {
 
 func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 	basePosition := createBasePos()
-	var takePhoto = false
+	var takePhoto = true
 	var zone []*pb.ZoneInfo
 
 	if s.photoNotes.Size() > 0 {
@@ -83,7 +86,7 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 			BasePosition: &basePosition,
 			TargetInfo:   nil,
 			TakePhoto:    takePhoto,
-			Zone:         zone,
+			Zone:         []*pb.ZoneInfo{cli.GenerateZoneInfo()},
 		}
 		return msg
 	}
@@ -103,7 +106,7 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 			BasePosition: &basePosition,
 			TargetInfo:   nil,
 			TakePhoto:    takePhoto,
-			Zone:         zone,
+			Zone:         []*pb.ZoneInfo{cli.GenerateZoneInfo()},
 		}
 		return msg
 	} else {
@@ -112,7 +115,7 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 			BasePosition: &basePosition,
 			TargetInfo:   notes,
 			TakePhoto:    takePhoto,
-			Zone:         zone,
+			Zone:         []*pb.ZoneInfo{cli.GenerateZoneInfo()},
 		}
 		return msg
 	}
@@ -131,4 +134,28 @@ func getTimeStamp() string {
 	bytes := make([]byte, 0)
 	bytes = append(bytes, strconv.FormatInt(time.Now().Unix(), 10)...)
 	return string(bytes)
+}
+
+func (s *server) getAllSatellitesInfo() []*pb.SatelliteInfo {
+	satellites := s.redisClient.GetSelectedSatPos(s.systemSatellites)
+	return satellites
+}
+
+func generateSystemSatellites() []string {
+	readFile, err := os.Open("/home/ubuntu/starlink/server/SatelliteList")
+	systemSatellites := make([]string, 0)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+	fileScanner := bufio.NewScanner(readFile)
+
+	fileScanner.Split(bufio.ScanLines)
+
+	for fileScanner.Scan() {
+		systemSatellites = append(systemSatellites, fileScanner.Text())
+	}
+
+	readFile.Close()
+	return systemSatellites
 }

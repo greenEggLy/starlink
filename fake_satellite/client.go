@@ -65,30 +65,36 @@ func postAndReceive(client pb.SatComClient) error {
 				log.Printf("[sat]:no target in horizon\n")
 			}
 
-			// should take a photo and send
 			if in.TakePhoto {
-				image := make([]byte, 0)
-				image = append(image, "photo"...)
+				// should take a photo and send
+				go func(in *pb.Base2Sat) {
+					photo := cli.LoadPhoto()
+					image := make([]byte, 0)
+					image = append(image, photo...)
 
-				photoRequest := pb.SatPhotoRequest{
-					Timestamp: cli.GetTimeStamp(),
-					SatInfo:   cli.GenerateSatInfo(),
-					Zone:      in.Zone[0],
-					ImageData: image,
-				}
-				// send a photo request to server
-				// in the rpc service TakePhotos
-				for {
-					checkMsg, err := client.TakePhotos(ctx, &photoRequest)
-					if err != nil {
-						log.Fatalf("satellite-base flow failed: %v", err)
+					photoRequest := pb.SatPhotoRequest{
+						Timestamp: cli.GetTimeStamp(),
+						SatInfo:   cli.GenerateSatInfo(),
+						Zone:      in.Zone[0],
+						ImageData: image,
 					}
-					if checkMsg.ReceivePhoto {
-						break
+					// send a photo request to server
+					// in the rpc service TakePhotos
+					for {
+						log.Printf("[sat]:take a photo\n")
+						checkMsg, err := client.TakePhotos(ctx, &photoRequest)
+						log.Printf("[sat]:send a photo request to server\n")
+
+						if err != nil {
+							log.Fatalf("satellite-base flow failed: %v", err)
+							return
+						}
+						if checkMsg.ReceivePhoto {
+							return
+						}
 					}
-				}
+				}(in)
 			}
-
 		}
 	}()
 	go func(satt *time.Ticker, timer *time.Timer, client pb.SatComClient) {

@@ -81,8 +81,17 @@ func GenerateRandomTargetPos(num int) []*pb.TargetInfo {
 
 func GenerateZoneInfo() *pb.ZoneInfo {
 	zone := pb.ZoneInfo{
-		UpperLeft:   GenerateOneLLPos(0),
-		BottomRight: GenerateOneLLPos(0),
+		RequestIdentify: true,
+		UpperLeft: &pb.LLPosition{
+			Timestamp: fmt.Sprint(time.Now().Unix()),
+			Lat:       121.78518,
+			Lng:       31.15397,
+		},
+		BottomRight: &pb.LLPosition{
+			Timestamp: fmt.Sprint(time.Now().Unix()),
+			Lat:       121.79518,
+			Lng:       31.14397,
+		},
 	}
 	return &zone
 }
