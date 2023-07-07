@@ -139,6 +139,7 @@ message UnityPhotoRequest{
 message BasePhotoResponse{
     string timestamp = 1;
     bytes image_data = 2;
+    SatelliteInfo sat_info = 3;
 }
 
 // 先留着这个字段，或许之后要用，不管发什么都会返回所有的卫星信息

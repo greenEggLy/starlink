@@ -30,13 +30,14 @@ var findNewTarget = make(chan bool, 10)
 // expiredMap is thread-safe
 type server struct {
 	pb.UnimplementedSatComServer
-	mu               sync.RWMutex
-	findTarget       bool
-	systemSatellites []string
-	trackingSatNotes *utils.ExpiredMap[string, []string]    // [target_name, [satellite_name]]
-	tarNotes         *utils.ExpiredMap[string, string]      // [target_name, target_name]
-	photoNotes       *utils.ExpiredMap[string, chan []byte] // [zone_info, channel]
-	redisClient      *utils.Redis
+	mu                  sync.RWMutex
+	findTarget          bool
+	systemSatellites    []string                               // all satellites in the system
+	trackingSatNotes    *utils.ExpiredMap[string, []string]    // [target_name, [satellite_name]]
+	tarNotes            *utils.ExpiredMap[string, string]      // [target_name, target_name]
+	photoNotes          *utils.ExpiredMap[string, chan []byte] // [zone_info, channel]
+	satellitePhotoNotes *utils.ExpiredMap[string, chan string]
+	redisClient         *utils.Redis
 }
 
 func newServer() *server {
@@ -123,6 +124,7 @@ func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_Send
 	}
 	// create a channel to receive photo
 	photoChan := make(chan []byte, 1)
+	satelliteChan := make(chan string, 1)
 	s.photoNotes.Set(zoneInfo.String(), photoChan, int64(timeoutSec))
 	// wait for the channel and send it to unity
 	timer := time.NewTimer(time.Second * time.Duration(timeoutSec))
@@ -134,14 +136,18 @@ func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_Send
 		err := stream.Send(&pb.BasePhotoResponse{
 			Timestamp: getTimeStamp(),
 			ImageData: nil,
+			SatInfo:   nil,
 		})
 		return err
 	case photo := <-photoChan:
+		satelliteInfoStr := <-satelliteChan
+		satInfo := utils.String2SatelliteInfo(satelliteInfoStr)
 		log.Printf("[unity] receive photo")
 		s.photoNotes.Delete(zoneInfo.String())
 		err := stream.Send(&pb.BasePhotoResponse{
 			Timestamp: getTimeStamp(),
 			ImageData: photo,
+			SatInfo:   satInfo,
 		})
 		if err != nil {
 			log.Printf("send photo error, %v", err)
@@ -237,10 +243,13 @@ func (s *server) TakePhotos(ctx context.Context, request *pb.SatPhotoRequest) (*
 	}
 	// check if other satellite has took the photo
 	log.Printf("%v", zoneInfo)
-	check, channel := s.photoNotes.GetAndDelete(zoneInfo.String())
+	zoneInfoStr := utils.ZoneInfo2String(zoneInfo)
+	check, channel := s.photoNotes.GetAndDelete(zoneInfoStr)
+	_, SatChannel := s.satellitePhotoNotes.GetAndDelete(zoneInfoStr)
 	if check {
 		log.Printf("[satellite] photo taken")
 		channel <- request.ImageData
+		SatChannel <- utils.SatelliteInfo2String(request.SatInfo)
 		return &pb.BasePhotoReceiveResponse{
 			Timestamp:    getTimeStamp(),
 			ReceivePhoto: true,

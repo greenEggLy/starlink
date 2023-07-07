@@ -5,21 +5,21 @@ import (
 	"time"
 )
 
-type val[V []string | string | chan []byte] struct {
+type val[V []string | string | chan []byte | chan string] struct {
 	data        V
 	expiredVime int64
 }
 
 const delChannelCap = 100
 
-type ExpiredMap[K string, V []string | string | chan []byte] struct {
+type ExpiredMap[K string, V []string | string | chan []byte | chan string] struct {
 	m       map[K]*val[V]
 	timeMap map[int64][]K
 	lck     *sync.Mutex
 	stop    chan struct{}
 }
 
-func NewExpiredMap[K string, V []string | string | chan []byte]() *ExpiredMap[K, V] {
+func NewExpiredMap[K string, V []string | string | chan []byte | chan string]() *ExpiredMap[K, V] {
 	e := ExpiredMap[K, V]{
 		m:       make(map[K]*val[V]),
 		lck:     new(sync.Mutex),
@@ -30,7 +30,7 @@ func NewExpiredMap[K string, V []string | string | chan []byte]() *ExpiredMap[K,
 	return &e
 }
 
-type delMsg[K string, V []string | string | chan []byte] struct {
+type delMsg[K string, V []string | string | chan []byte | chan string] struct {
 	keys []K
 	t    int64
 }
