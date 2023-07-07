@@ -99,10 +99,10 @@ func (r *Redis) SetSatPos(value pb.SatelliteInfo) {
 	r.m.Lock()
 	defer r.m.Unlock()
 	now_time := time.Now()
-	expire_time := now_time.Add(time.Duration(r.expire_sec) * time.Second)
+	// expire_time := now_time.Add(time.Duration(r.expire_sec) * time.Second)
 	key := value.SatName
 	r.client.HSet(context.Background(), key, "ALT", value.SatPosition.Alt, "LAT", value.SatPosition.Lat, "LNG", value.SatPosition.Lng, "TS", now_time.Unix())
-	r.client.ExpireAt(context.Background(), key, expire_time)
+	// r.client.ExpireAt(context.Background(), key, expire_time)
 }
 
 // get all positions by satellite name

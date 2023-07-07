@@ -308,7 +308,6 @@ func (s *server) SelectSatellites(request *pb.UnitySatellitesRequest, server pb.
 	// get all satellites information
 	satellites := s.getAllSatellitesInfo()
 	msg := &pb.Base2UnitySatellites{
-		Timestamp:  getTimeStamp(),
 		Satellites: satellites,
 	}
 	if err := server.Send(msg); err != nil {

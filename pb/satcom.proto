@@ -147,6 +147,5 @@ message UnitySatellitesRequest{
 }
 
 message Base2UnitySatellites{
-    string timestamp = 1;
-    repeated SatelliteInfo satellites = 2;
+    repeated SatelliteInfo satellites = 1;
 }
