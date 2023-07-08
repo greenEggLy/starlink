@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 	pb "starlink/pb"
-	cli "starlink/test/client/client"
 	"starlink/utils"
 	"starlink/utils/async"
+	cli "starlink/utils/client"
 	"strconv"
 	"time"
 )
