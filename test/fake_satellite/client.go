@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "starlink/pb"
-	cli "starlink/utils/client"
+	cli "starlink/test/client/client"
 )
 
 var (
