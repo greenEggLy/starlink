@@ -142,7 +142,7 @@ func (s *server) getAllSatellitesInfo() []*pb.SatelliteInfo {
 }
 
 func generateSystemSatellites() []string {
-	readFile, err := os.Open("/home/ubuntu/starlink/server/SatelliteList")
+	readFile, err := os.Open("./SatelliteList")
 	systemSatellites := make([]string, 0)
 	if err != nil {
 		fmt.Println(err)
