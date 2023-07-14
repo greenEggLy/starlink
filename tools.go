@@ -7,7 +7,6 @@ import (
 	pb "starlink/pb"
 	"starlink/utils"
 	"starlink/utils/async"
-	cli "starlink/utils/client"
 	"strconv"
 	"time"
 )
@@ -69,15 +68,18 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 	var takePhoto = true
 	var zone []*pb.ZoneInfo
 
-	if s.photoNotes.Size() > 0 {
-		zones := s.photoNotes.GetAllKeys()
-		// if zone type is pb.ZoneInfo, then append to msg
-		// else then do nothing
-		takePhoto = true
-		for _, v := range zones {
-			zone = append(zone, utils.String2ZoneInfo(v))
-		}
+	// if s.photoNotes.Size() > 0 {
+	// 	zones := s.photoNotes.GetAllKeys()
+	// 	// if zone type is pb.ZoneInfo, then append to msg
+	// 	// else then do nothing
+	// 	takePhoto = true
+	// 	for _, v := range zones {
+	// 		zone = append(zone, utils.String2ZoneInfo(v))
+	// 	}
 
+	// }
+	for k := range s.photoNotes {
+		zone = append(zone, utils.String2ZoneInfo(k))
 	}
 
 	if !hasTracking {
@@ -86,7 +88,8 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 			BasePosition: &basePosition,
 			TargetInfo:   nil,
 			TakePhoto:    takePhoto,
-			Zone:         []*pb.ZoneInfo{cli.GenerateZoneInfo()},
+			// Zone:         []*pb.ZoneInfo{cli.GenerateZoneInfo()},
+			Zone: zone,
 		}
 		return msg
 	}
@@ -106,7 +109,8 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 			BasePosition: &basePosition,
 			TargetInfo:   nil,
 			TakePhoto:    takePhoto,
-			Zone:         []*pb.ZoneInfo{cli.GenerateZoneInfo()},
+			// Zone:         []*pb.ZoneInfo{cli.GenerateZoneInfo()},
+			Zone: zone,
 		}
 		return msg
 	} else {
@@ -115,7 +119,8 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 			BasePosition: &basePosition,
 			TargetInfo:   notes,
 			TakePhoto:    takePhoto,
-			Zone:         []*pb.ZoneInfo{cli.GenerateZoneInfo()},
+			// Zone:         []*pb.ZoneInfo{cli.GenerateZoneInfo()},
+			Zone: zone,
 		}
 		return msg
 	}

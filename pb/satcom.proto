@@ -13,7 +13,7 @@ service SatCom{
     // satellite拍摄完成后发起请求, base接受照片信息并返回是否成功接收
     // request: 时间戳, 卫星信息, 区域信息, 照片信息
     // response: 时间戳, 是否成功收到照片
-    rpc TakePhotos(SatPhotoRequest) returns (BasePhotoReceiveResponse);
+    rpc TakePhotos(stream SatPhotoRequest) returns (stream BasePhotoReceiveResponse);
 
     // NOTICE: 不再用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
     rpc ReceiveFromUnity_template(stream UnityRequest_template) returns (stream Base2Unity);
@@ -133,6 +133,7 @@ message Base2Unity{
 message UnityPhotoRequest{
     string timestamp = 1;
     ZoneInfo zone = 2;
+    bool begin = 3;// true for begin, false for end
 }
 
 // response in SendPhotos

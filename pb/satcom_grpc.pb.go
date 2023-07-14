@@ -29,7 +29,7 @@ type SatComClient interface {
 	// satellite拍摄完成后发起请求, base接受照片信息并返回是否成功接收
 	// request: 时间戳, 卫星信息, 区域信息, 照片信息
 	// response: 时间戳, 是否成功收到照片
-	TakePhotos(ctx context.Context, in *SatPhotoRequest, opts ...grpc.CallOption) (*BasePhotoReceiveResponse, error)
+	TakePhotos(ctx context.Context, opts ...grpc.CallOption) (SatCom_TakePhotosClient, error)
 	// NOTICE: 不再用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
 	ReceiveFromUnityTemplate(ctx context.Context, opts ...grpc.CallOption) (SatCom_ReceiveFromUnityTemplateClient, error)
 	// unity端发起请求, base在一段时间内进行持续响应
@@ -85,17 +85,39 @@ func (x *satComCommuWizSatClient) Recv() (*Base2Sat, error) {
 	return m, nil
 }
 
-func (c *satComClient) TakePhotos(ctx context.Context, in *SatPhotoRequest, opts ...grpc.CallOption) (*BasePhotoReceiveResponse, error) {
-	out := new(BasePhotoReceiveResponse)
-	err := c.cc.Invoke(ctx, "/commu.SatCom/TakePhotos", in, out, opts...)
+func (c *satComClient) TakePhotos(ctx context.Context, opts ...grpc.CallOption) (SatCom_TakePhotosClient, error) {
+	stream, err := c.cc.NewStream(ctx, &SatCom_ServiceDesc.Streams[1], "/commu.SatCom/TakePhotos", opts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &satComTakePhotosClient{stream}
+	return x, nil
+}
+
+type SatCom_TakePhotosClient interface {
+	Send(*SatPhotoRequest) error
+	Recv() (*BasePhotoReceiveResponse, error)
+	grpc.ClientStream
+}
+
+type satComTakePhotosClient struct {
+	grpc.ClientStream
+}
+
+func (x *satComTakePhotosClient) Send(m *SatPhotoRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *satComTakePhotosClient) Recv() (*BasePhotoReceiveResponse, error) {
+	m := new(BasePhotoReceiveResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func (c *satComClient) ReceiveFromUnityTemplate(ctx context.Context, opts ...grpc.CallOption) (SatCom_ReceiveFromUnityTemplateClient, error) {
-	stream, err := c.cc.NewStream(ctx, &SatCom_ServiceDesc.Streams[1], "/commu.SatCom/ReceiveFromUnity_template", opts...)
+	stream, err := c.cc.NewStream(ctx, &SatCom_ServiceDesc.Streams[2], "/commu.SatCom/ReceiveFromUnity_template", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +148,7 @@ func (x *satComReceiveFromUnityTemplateClient) Recv() (*Base2Unity, error) {
 }
 
 func (c *satComClient) CommuWizUnity(ctx context.Context, in *UnityRequest, opts ...grpc.CallOption) (SatCom_CommuWizUnityClient, error) {
-	stream, err := c.cc.NewStream(ctx, &SatCom_ServiceDesc.Streams[2], "/commu.SatCom/CommuWizUnity", opts...)
+	stream, err := c.cc.NewStream(ctx, &SatCom_ServiceDesc.Streams[3], "/commu.SatCom/CommuWizUnity", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +180,7 @@ func (x *satComCommuWizUnityClient) Recv() (*Base2Unity, error) {
 }
 
 func (c *satComClient) SelectSatellites(ctx context.Context, in *UnitySatellitesRequest, opts ...grpc.CallOption) (SatCom_SelectSatellitesClient, error) {
-	stream, err := c.cc.NewStream(ctx, &SatCom_ServiceDesc.Streams[3], "/commu.SatCom/SelectSatellites", opts...)
+	stream, err := c.cc.NewStream(ctx, &SatCom_ServiceDesc.Streams[4], "/commu.SatCom/SelectSatellites", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +212,7 @@ func (x *satComSelectSatellitesClient) Recv() (*Base2UnitySatellites, error) {
 }
 
 func (c *satComClient) SendPhotos(ctx context.Context, in *UnityPhotoRequest, opts ...grpc.CallOption) (SatCom_SendPhotosClient, error) {
-	stream, err := c.cc.NewStream(ctx, &SatCom_ServiceDesc.Streams[4], "/commu.SatCom/SendPhotos", opts...)
+	stream, err := c.cc.NewStream(ctx, &SatCom_ServiceDesc.Streams[5], "/commu.SatCom/SendPhotos", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +254,7 @@ type SatComServer interface {
 	// satellite拍摄完成后发起请求, base接受照片信息并返回是否成功接收
 	// request: 时间戳, 卫星信息, 区域信息, 照片信息
 	// response: 时间戳, 是否成功收到照片
-	TakePhotos(context.Context, *SatPhotoRequest) (*BasePhotoReceiveResponse, error)
+	TakePhotos(SatCom_TakePhotosServer) error
 	// NOTICE: 不再用的方法，unity端持续发目标的坐标信息，基站持续接收并返回那些哪些卫星正在跟踪以及目标坐标信息
 	ReceiveFromUnityTemplate(SatCom_ReceiveFromUnityTemplateServer) error
 	// unity端发起请求, base在一段时间内进行持续响应
@@ -257,8 +279,8 @@ type UnimplementedSatComServer struct {
 func (UnimplementedSatComServer) CommuWizSat(SatCom_CommuWizSatServer) error {
 	return status.Errorf(codes.Unimplemented, "method CommuWizSat not implemented")
 }
-func (UnimplementedSatComServer) TakePhotos(context.Context, *SatPhotoRequest) (*BasePhotoReceiveResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method TakePhotos not implemented")
+func (UnimplementedSatComServer) TakePhotos(SatCom_TakePhotosServer) error {
+	return status.Errorf(codes.Unimplemented, "method TakePhotos not implemented")
 }
 func (UnimplementedSatComServer) ReceiveFromUnityTemplate(SatCom_ReceiveFromUnityTemplateServer) error {
 	return status.Errorf(codes.Unimplemented, "method ReceiveFromUnityTemplate not implemented")
@@ -311,22 +333,30 @@ func (x *satComCommuWizSatServer) Recv() (*SatRequest, error) {
 	return m, nil
 }
 
-func _SatCom_TakePhotos_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SatPhotoRequest)
-	if err := dec(in); err != nil {
+func _SatCom_TakePhotos_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(SatComServer).TakePhotos(&satComTakePhotosServer{stream})
+}
+
+type SatCom_TakePhotosServer interface {
+	Send(*BasePhotoReceiveResponse) error
+	Recv() (*SatPhotoRequest, error)
+	grpc.ServerStream
+}
+
+type satComTakePhotosServer struct {
+	grpc.ServerStream
+}
+
+func (x *satComTakePhotosServer) Send(m *BasePhotoReceiveResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *satComTakePhotosServer) Recv() (*SatPhotoRequest, error) {
+	m := new(SatPhotoRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
-	if interceptor == nil {
-		return srv.(SatComServer).TakePhotos(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/commu.SatCom/TakePhotos",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SatComServer).TakePhotos(ctx, req.(*SatPhotoRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+	return m, nil
 }
 
 func _SatCom_ReceiveFromUnityTemplate_Handler(srv interface{}, stream grpc.ServerStream) error {
@@ -424,16 +454,17 @@ func (x *satComSendPhotosServer) Send(m *BasePhotoResponse) error {
 var SatCom_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "commu.SatCom",
 	HandlerType: (*SatComServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "TakePhotos",
-			Handler:    _SatCom_TakePhotos_Handler,
-		},
-	},
+	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "CommuWizSat",
 			Handler:       _SatCom_CommuWizSat_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "TakePhotos",
+			Handler:       _SatCom_TakePhotos_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

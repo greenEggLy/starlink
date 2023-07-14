@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/binary"
 	"flag"
 	"fmt"
@@ -21,7 +20,7 @@ import (
 
 var (
 	// port2 = flag.Int("port2", 8080, "The server port communicating with unity")
-	port = flag.Int("port", 50051, "The server port")
+	port = flag.Int("port", 50052, "The server port")
 )
 var findNewTarget = make(chan bool, 10)
 
@@ -32,12 +31,13 @@ type server struct {
 	pb.UnimplementedSatComServer
 	mu                  sync.RWMutex
 	findTarget          bool
-	systemSatellites    []string                               // all satellites in the system
-	trackingSatNotes    *utils.ExpiredMap[string, []string]    // [target_name, [satellite_name]]
-	tarNotes            *utils.ExpiredMap[string, string]      // [target_name, target_name]
-	photoNotes          *utils.ExpiredMap[string, chan []byte] // [zone_info, channel]
+	systemSatellites    []string                            // all satellites in the system
+	trackingSatNotes    *utils.ExpiredMap[string, []string] // [target_name, [satellite_name]]
+	tarNotes            *utils.ExpiredMap[string, string]   // [target_name, target_name]
+	photoNotes          map[string]chan []byte              // [zone_info, channel]
 	satellitePhotoNotes *utils.ExpiredMap[string, chan string]
 	redisClient         *utils.Redis
+	photoWaitC          chan struct{}
 }
 
 func newServer() *server {
@@ -46,8 +46,9 @@ func newServer() *server {
 		systemSatellites: generateSystemSatellites(),
 		trackingSatNotes: utils.NewExpiredMap[string, []string](),
 		tarNotes:         utils.NewExpiredMap[string, string](),
-		photoNotes:       utils.NewExpiredMap[string, chan []byte](),
-		redisClient:      utils.NewRedis(60),
+		// photoNotes:       utils.NewExpiredMap[string, chan []byte](),
+		photoNotes:  make(map[string]chan []byte),
+		redisClient: utils.NewRedis(60),
 	}
 	return s
 }
@@ -115,47 +116,82 @@ func (s *server) CommuWizUnity(request *pb.UnityRequest, stream pb.SatCom_CommuW
 
 // server <-> Unity [photo]
 func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_SendPhotosServer) error {
-	timeoutSec := 20
-	zoneInfo := request.GetZone()
-	// check if the request is duplicate
-	find, _ := s.photoNotes.Get(zoneInfo.String())
-	if find {
-		return nil
+	var beginChan chan struct{}
+	var photoChan chan []byte
+	var zoneInfoStr string
+	if request.Begin {
+		beginChan = make(chan struct{})
+		zoneInfo := request.GetZone()
+		photoChan = make(chan []byte, 1)
+		zoneInfoStr = utils.ZoneInfo2String(zoneInfo)
+		s.photoNotes[zoneInfoStr] = photoChan
+	} else {
+		beginChan <- struct{}{}
 	}
-	// create a channel to receive photo
-	photoChan := make(chan []byte, 1)
-	satelliteChan := make(chan string, 1)
-	s.photoNotes.Set(zoneInfo.String(), photoChan, int64(timeoutSec))
-	// wait for the channel and send it to unity
-	timer := time.NewTimer(time.Second * time.Duration(timeoutSec))
-	select {
-	case <-timer.C:
-		// delete the element in photoNotes
-		log.Printf("[unity] photo timeout")
-		s.photoNotes.Delete(zoneInfo.String())
-		err := stream.Send(&pb.BasePhotoResponse{
-			Timestamp: getTimeStamp(),
-			ImageData: nil,
-			SatInfo:   nil,
-		})
-		return err
-	case photo := <-photoChan:
-		satelliteInfoStr := <-satelliteChan
-		satInfo := utils.String2SatelliteInfo(satelliteInfoStr)
-		log.Printf("[unity] receive photo")
-		s.photoNotes.Delete(zoneInfo.String())
-		err := stream.Send(&pb.BasePhotoResponse{
-			Timestamp: getTimeStamp(),
-			ImageData: photo,
-			SatInfo:   satInfo,
-		})
-		if err != nil {
-			log.Printf("send photo error, %v", err)
-			return err
+	go func(photoChan chan []byte, beginChan chan struct{}) {
+		for {
+			select {
+			case <-beginChan:
+				return
+			case photo := <-photoChan:
+				// receive satellite info
+				_, sateChan := s.satellitePhotoNotes.Get(zoneInfoStr)
+				sateInfo := <-sateChan
+				// return the photo to untiy
+				err := stream.Send(&pb.BasePhotoResponse{
+					Timestamp: getTimeStamp(),
+					ImageData: photo,
+					SatInfo:   utils.String2SatelliteInfo(sateInfo),
+				})
+				if err != nil {
+					log.Printf("failed to send: %v\n", err)
+				}
+			}
 		}
-		timer.Stop()
-		return nil
-	}
+	}(photoChan, beginChan)
+	return nil
+
+	// timeoutSec := 20
+	// zoneInfo := request.GetZone()
+	// check if the request is duplicate
+	// find, _ := s.photoNotes.Get(zoneInfo.String())
+	// if find {
+	// 	return nil
+	// }
+	// create a channel to receive photo
+	// photoChan := make(chan []byte, 1)
+	// satelliteChan := make(chan string, 1)
+	// s.photoNotes.Set(zoneInfo.String(), photoChan, int64(timeoutSec))
+	// wait for the channel and send it to unity
+	// timer := time.NewTimer(time.Second * time.Duration(timeoutSec))
+	// select {
+	// case <-timer.C:
+	// 	// delete the element in photoNotes
+	// 	log.Printf("[unity] photo timeout")
+	// 	s.photoNotes.Delete(zoneInfo.String())
+	// 	err := stream.Send(&pb.BasePhotoResponse{
+	// 		Timestamp: getTimeStamp(),
+	// 		ImageData: nil,
+	// 		SatInfo:   nil,
+	// 	})
+	// 	return err
+	// case photo := <-photoChan:
+	// 	satelliteInfoStr := <-satelliteChan
+	// 	satInfo := utils.String2SatelliteInfo(satelliteInfoStr)
+	// 	log.Printf("[unity] receive photo")
+	// 	s.photoNotes.Delete(zoneInfo.String())
+	// 	err := stream.Send(&pb.BasePhotoResponse{
+	// 		Timestamp: getTimeStamp(),
+	// 		ImageData: photo,
+	// 		SatInfo:   satInfo,
+	// 	})
+	// 	if err != nil {
+	// 		log.Printf("send photo error, %v", err)
+	// 		return err
+	// 	}
+	// 	timer.Stop()
+	// 	return nil
+	// }
 }
 
 // server <-> Satellite [target]
@@ -231,38 +267,106 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 	}
 }
 
-func (s *server) TakePhotos(ctx context.Context, request *pb.SatPhotoRequest) (*pb.BasePhotoReceiveResponse, error) {
-	log.Printf("[satellite] photo")
-	// get zone information
-	zoneInfo := request.GetZone()
-	if binary.Size(request.ImageData) <= 0 {
-		return &pb.BasePhotoReceiveResponse{
-			Timestamp:    getTimeStamp(),
-			ReceivePhoto: false,
-		}, nil
-	}
-	// check if other satellite has took the photo
-	log.Printf("%v", zoneInfo)
-	zoneInfoStr := utils.ZoneInfo2String(zoneInfo)
-	check, channel := s.photoNotes.GetAndDelete(zoneInfoStr)
-	_, SatChannel := s.satellitePhotoNotes.GetAndDelete(zoneInfoStr)
-	if check {
-		log.Printf("[satellite] photo taken")
-		channel <- request.ImageData
-		SatChannel <- utils.SatelliteInfo2String(request.SatInfo)
-		return &pb.BasePhotoReceiveResponse{
-			Timestamp:    getTimeStamp(),
-			ReceivePhoto: true,
-		}, nil
-	}
-	return &pb.BasePhotoReceiveResponse{
-		Timestamp:    getTimeStamp(),
-		ReceivePhoto: true,
-	}, nil
+func (s *server) TakePhoto(stream pb.SatCom_TakePhotosServer) error {
+	go func() error {
+		for {
+			request, err := stream.Recv()
+			if err != nil {
+				log.Printf("receive error: %v", err)
+				return err
+			}
+			photo := request.ImageData
+			zoneInfo := request.Zone
+			// check if the photo is empty
+			if binary.Size(photo) <= 0 {
+				// send to satellite
+				msg := &pb.BasePhotoReceiveResponse{
+					Timestamp:    getTimeStamp(),
+					ReceivePhoto: false,
+				}
+				err := stream.Send(msg)
+				if err != nil {
+					log.Printf("send message error, %v", err)
+					return err
+				}
+				return nil
+			}
+			// send the photo to chan
+			zoneInfoStr := utils.ZoneInfo2String(zoneInfo)
+			photoChan := s.photoNotes[zoneInfoStr]
+			_, SatChannel := s.satellitePhotoNotes.GetAndDelete(zoneInfoStr)
+			if photoChan == nil {
+				log.Printf("photo channel is nil")
+				return nil
+			}
+			SatChannel <- utils.SatelliteInfo2String(request.SatInfo)
+			photoChan <- photo
+			// send to satellite
+			msg := &pb.BasePhotoReceiveResponse{
+				Timestamp:    getTimeStamp(),
+				ReceivePhoto: true,
+			}
+			err = stream.Send(msg)
+			if err != nil {
+				log.Printf("send message error, %v", err)
+				return err
+			}
+			return nil
+		}
+	}()
+	<-s.photoWaitC
+	return nil
 }
+
+// func (s *server) TakePhotos(ctx context.Context, request *pb.SatPhotoRequest) (*pb.BasePhotoReceiveResponse, error) {
+// 	log.Printf("[satellite] photo")
+// 	// get zone information
+// 	zoneInfo := request.GetZone()
+// 	if binary.Size(request.ImageData) <= 0 {
+// 		return &pb.BasePhotoReceiveResponse{
+// 			Timestamp:    getTimeStamp(),
+// 			ReceivePhoto: false,
+// 		}, nil
+// 	}
+// 	// check if other satellite has took the photo
+// 	log.Printf("%v", zoneInfo)
+// 	zoneInfoStr := utils.ZoneInfo2String(zoneInfo)
+// 	check, channel := s.photoNotes.GetAndDelete(zoneInfoStr)
+// 	_, SatChannel := s.satellitePhotoNotes.GetAndDelete(zoneInfoStr)
+// 	if check {
+// 		log.Printf("[satellite] photo taken")
+// 		channel <- request.ImageData
+// 		SatChannel <- utils.SatelliteInfo2String(request.SatInfo)
+// 		return &pb.BasePhotoReceiveResponse{
+// 			Timestamp:    getTimeStamp(),
+// 			ReceivePhoto: true,
+// 		}, nil
+// 	}
+// 	return &pb.BasePhotoReceiveResponse{
+// 		Timestamp:    getTimeStamp(),
+// 		ReceivePhoto: true,
+// 	}, nil
+// }
 
 // server <-> Unity [target]
 // legacy, not used
+
+// server <-> Unity [all satellites]
+func (s *server) SelectSatellites(request *pb.UnitySatellitesRequest, server pb.SatCom_SelectSatellitesServer) error {
+	log.Printf("[unity] select satellites")
+	// get all satellites information
+	satellites := s.getAllSatellitesInfo()
+	msg := &pb.Base2UnitySatellites{
+		Satellites: satellites,
+	}
+	if err := server.Send(msg); err != nil {
+		log.Printf("[server]send to unity error, %v", err)
+		grpc.WithReturnConnectionError()
+		return err
+	}
+	return nil
+}
+
 func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTemplateServer) error {
 	for {
 		in, err := stream.Recv()
@@ -309,20 +413,4 @@ func (s *server) ReceiveFromUnityTemplate(stream pb.SatCom_ReceiveFromUnityTempl
 		}()
 
 	}
-}
-
-// server <-> Unity [all satellites]
-func (s *server) SelectSatellites(request *pb.UnitySatellitesRequest, server pb.SatCom_SelectSatellitesServer) error {
-	log.Printf("[unity] select satellites")
-	// get all satellites information
-	satellites := s.getAllSatellitesInfo()
-	msg := &pb.Base2UnitySatellites{
-		Satellites: satellites,
-	}
-	if err := server.Send(msg); err != nil {
-		log.Printf("[server]send to unity error, %v", err)
-		grpc.WithReturnConnectionError()
-		return err
-	}
-	return nil
 }
