@@ -125,7 +125,7 @@ func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_Send
 	photoChan := s.photoNotes[zoneInfoStr]
 	sateChan := s.satellitePhotoNotes[zoneInfoStr]
 	// get the zone info
-	go func(photoChan chan []byte, sateChan chan string) {
+	go func(photoChan chan []byte, sateChan chan string, deadline time.Time) {
 		for {
 			select {
 			case <-time.After(time.Until(deadline)):
@@ -144,7 +144,7 @@ func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_Send
 				}
 			}
 		}
-	}(photoChan, sateChan)
+	}(photoChan, sateChan, deadline)
 	return nil
 
 	// timeoutSec := 20
@@ -275,7 +275,7 @@ func (s *server) TakePhoto(stream pb.SatCom_TakePhotosServer) error {
 	}
 	// get the zone information
 
-	go func() error {
+	go func(deadline time.Time) error {
 		for {
 			select {
 			case <-time.After(time.Until(deadline)):
@@ -324,7 +324,7 @@ func (s *server) TakePhoto(stream pb.SatCom_TakePhotosServer) error {
 				}
 			}
 		}
-	}()
+	}(deadline)
 	return nil
 }
 
@@ -364,16 +364,29 @@ func (s *server) TakePhoto(stream pb.SatCom_TakePhotosServer) error {
 // server <-> Unity [all satellites]
 func (s *server) SelectSatellites(request *pb.UnitySatellitesRequest, server pb.SatCom_SelectSatellitesServer) error {
 	log.Printf("[unity] select satellites")
-	// get all satellites information
-	satellites := s.getAllSatellitesInfo()
-	msg := &pb.Base2UnitySatellites{
-		Satellites: satellites,
+	deadline, ok := server.Context().Deadline()
+	if !ok {
+		deadline = time.Now().Add(time.Second * 1200)
 	}
-	if err := server.Send(msg); err != nil {
-		log.Printf("[server]send to unity error, %v", err)
-		grpc.WithReturnConnectionError()
-		return err
-	}
+	ticker := time.NewTicker(time.Second * 1)
+	go func(deadline time.Time) {
+		for {
+			select {
+			case <-time.After(time.Until(deadline)):
+				return
+			case <-ticker.C:
+				// get all satellites information
+				satellites := s.getAllSatellitesInfo()
+				msg := &pb.Base2UnitySatellites{
+					Satellites: satellites,
+				}
+				if err := server.Send(msg); err != nil {
+					log.Printf("[server]send to unity error, %v", err)
+					grpc.WithReturnConnectionError()
+				}
+			}
+		}
+	}(deadline)
 	return nil
 }
 
