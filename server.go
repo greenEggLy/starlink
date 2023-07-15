@@ -82,7 +82,7 @@ func (s *server) CommuWizUnity(request *pb.UnityRequest, stream pb.SatCom_CommuW
 	} else {
 		timer = time.NewTimer(10 * time.Second)
 	}
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	defer timer.Stop()
 	waitC := make(chan struct{})
@@ -123,28 +123,42 @@ func (s *server) SendPhotos(request *pb.UnityPhotoRequest, stream pb.SatCom_Send
 	}
 	zoneInfoStr := utils.ZoneInfo2String(request.GetZone())
 	photoChan := s.photoNotes[zoneInfoStr]
+	if photoChan == nil {
+		photoChan = make(chan []byte)
+		s.mu.Lock()
+		s.photoNotes[zoneInfoStr] = photoChan
+		s.mu.Unlock()
+	}
 	sateChan := s.satellitePhotoNotes[zoneInfoStr]
+	waitC := make(chan struct{})
 	// get the zone info
 	go func(photoChan chan []byte, sateChan chan string, deadline time.Time) {
 		for {
 			select {
 			case <-time.After(time.Until(deadline)):
+				log.Printf("timeout\n")
+				waitC <- struct{}{}
 				return
 			case photo := <-photoChan:
+				log.Printf("receive photo\n")
 				// receive satellite info
-				sateInfo := <-sateChan
+				// sateInfo := <-sateChan
 				// return the photo to untiy
 				err := stream.Send(&pb.BasePhotoResponse{
 					Timestamp: getTimeStamp(),
 					ImageData: photo,
-					SatInfo:   utils.String2SatelliteInfo(sateInfo),
+					// SatInfo:   utils.String2SatelliteInfo(sateInfo),
+					SatInfo: nil,
 				})
 				if err != nil {
+					waitC <- struct{}{}
 					log.Printf("failed to send: %v\n", err)
+					return
 				}
 			}
 		}
 	}(photoChan, sateChan, deadline)
+	<-waitC
 	return nil
 
 	// timeoutSec := 20
@@ -268,63 +282,50 @@ func (s *server) CommuWizSat(stream pb.SatCom_CommuWizSatServer) error {
 }
 
 // base <-> satellite [photo]
-func (s *server) TakePhoto(stream pb.SatCom_TakePhotosServer) error {
-	deadline, ok := stream.Context().Deadline()
-	if !ok {
-		deadline = time.Now().Add(time.Second * 1200)
-	}
-	// get the zone information
-
-	go func(deadline time.Time) error {
-		for {
-			select {
-			case <-time.After(time.Until(deadline)):
-				return nil
-			default:
-				request, err := stream.Recv()
-				if err != nil {
-					log.Printf("receive error: %v", err)
-					return err
-				}
-				photo := request.ImageData
-				zoneInfoStr := utils.ZoneInfo2String(request.Zone)
-				// check if the photo is empty
-				if binary.Size(photo) <= 0 {
-					// send to satellite
-					msg := &pb.BasePhotoReceiveResponse{
-						Timestamp:    getTimeStamp(),
-						ReceivePhoto: false,
-					}
-					err := stream.Send(msg)
-					if err != nil {
-						log.Printf("send message error, %v", err)
-						return err
-					}
-					return nil
-				}
-				// send the photo to chan
-				photoChan := s.photoNotes[zoneInfoStr]
-				sateChan := s.satellitePhotoNotes[zoneInfoStr]
-				// _, SatChannel := s.satellitePhotoNotes.GetAndDelete(zoneInfoStr)
-				if photoChan == nil || sateChan == nil {
-					log.Printf("photo channel or satellite channel is nil")
-					return nil
-				}
-				sateChan <- utils.SatelliteInfo2String(request.SatInfo)
-				photoChan <- photo
-				// send to satellite
-				msg := &pb.BasePhotoReceiveResponse{
-					Timestamp:    getTimeStamp(),
-					ReceivePhoto: true,
-				}
-				err = stream.Send(msg)
-				if err != nil {
-					log.Printf("send message error, %v", err)
-					return err
-				}
-			}
+func (s *server) TakePhotos(request *pb.SatPhotoRequest, stream pb.SatCom_TakePhotosServer) error {
+	photo := request.ImageData
+	zoneInfoStr := utils.ZoneInfo2String(request.Zone)
+	// check if the photo is empty
+	if binary.Size(photo) <= 0 {
+		// send to satellite
+		msg := &pb.BasePhotoReceiveResponse{
+			Timestamp:    getTimeStamp(),
+			ReceivePhoto: false,
 		}
-	}(deadline)
+		stream.Send(msg)
+		return nil
+	}
+	log.Printf("photo size: %v", binary.Size(photo))
+	// send the photo to chan
+	photoChan := s.photoNotes[zoneInfoStr]
+	sateChan := s.satellitePhotoNotes[zoneInfoStr]
+	// _, SatChannel := s.satellitePhotoNotes.GetAndDelete(zoneInfoStr)
+	if photoChan == nil {
+		log.Printf("photo channel or satellite channel is nil")
+		msg := &pb.BasePhotoReceiveResponse{
+			Timestamp:    getTimeStamp(),
+			ReceivePhoto: false,
+		}
+		stream.Send(msg)
+		return nil
+	}
+	if sateChan != nil {
+		sateChan <- utils.SatelliteInfo2String(request.SatInfo)
+	}
+	photoChan <- photo
+	log.Printf("[server] send photo to channel")
+	// delete map item
+	// s.photoNotes[zoneInfoStr] = nil
+	// send to satellite
+	msg := &pb.BasePhotoReceiveResponse{
+		Timestamp:    getTimeStamp(),
+		ReceivePhoto: true,
+	}
+	err := stream.Send(msg)
+	if err != nil {
+		log.Printf("[server]send message error, %v", err)
+		return err
+	}
 	return nil
 }
 
@@ -368,11 +369,15 @@ func (s *server) SelectSatellites(request *pb.UnitySatellitesRequest, server pb.
 	if !ok {
 		deadline = time.Now().Add(time.Second * 1200)
 	}
+	waitC := make(chan struct{})
 	ticker := time.NewTicker(time.Second * 1)
+	defer ticker.Stop()
 	go func(deadline time.Time) {
 		for {
 			select {
 			case <-time.After(time.Until(deadline)):
+				ticker.Stop()
+				waitC <- struct{}{}
 				return
 			case <-ticker.C:
 				// get all satellites information
@@ -380,13 +385,20 @@ func (s *server) SelectSatellites(request *pb.UnitySatellitesRequest, server pb.
 				msg := &pb.Base2UnitySatellites{
 					Satellites: satellites,
 				}
-				if err := server.Send(msg); err != nil {
+				err := server.Send(msg)
+				errStatus, _ := status.FromError(err)
+				if errStatus.Code() == 1 {
+					log.Printf("stream cancelled")
+					return
+				}
+				if err != nil {
 					log.Printf("[server]send to unity error, %v", err)
-					grpc.WithReturnConnectionError()
+					return
 				}
 			}
 		}
 	}(deadline)
+	<-waitC
 	return nil
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	pb "starlink/pb"
 	"starlink/utils"
@@ -70,17 +71,19 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 
 	// if s.photoNotes.Size() > 0 {
 	// 	zones := s.photoNotes.GetAllKeys()
-	// 	// if zone type is pb.ZoneInfo, then append to msg
-	// 	// else then do nothing
-	// 	takePhoto = true
-	// 	for _, v := range zones {
-	// 		zone = append(zone, utils.String2ZoneInfo(v))
-	// 	}
+	// if zone type is pb.ZoneInfo, then append to msg
+	// else then do nothing
+	// takePhoto = true
+	// for , v := range s.photoNotes {
+	// 	zone = append(zone, utils.String2ZoneInfo(v))
+	// }
 
 	// }
 	for k := range s.photoNotes {
 		zone = append(zone, utils.String2ZoneInfo(k))
 	}
+
+	log.Printf("zone: %v", zone)
 
 	if !hasTracking {
 		msg := pb.Base2Sat{
@@ -93,7 +96,6 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 		}
 		return msg
 	}
-
 	targets := s.tarNotes.GetAll()
 	positionNotes := async.Exec(func() []*pb.TargetInfo {
 		return s.redisClient.GetAllTarPos(targets, 120)
