@@ -33,7 +33,7 @@ func (s *server) createBase2UnityMsg(hasTracking bool) pb.Base2Unity {
 	// return information
 	targets := s.tarNotes.GetAll()                // target names
 	target_sats := s.trackingSatNotes.GetMapAll() // tracking satellites
-	notes := s.redisClient.GetAllTarPos(targets)
+	notes := s.redisClient.GetAllTarPos(targets, 120)
 
 	if len(notes) == 0 || len(target_sats) == 0 {
 		s.mu.Lock()
@@ -96,7 +96,7 @@ func (s *server) createBase2SatMsg(hasTracking bool) pb.Base2Sat {
 
 	targets := s.tarNotes.GetAll()
 	positionNotes := async.Exec(func() []*pb.TargetInfo {
-		return s.redisClient.GetAllTarPos(targets)
+		return s.redisClient.GetAllTarPos(targets, 120)
 	})
 	notes := positionNotes.Await()
 

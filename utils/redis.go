@@ -54,12 +54,12 @@ func (r *Redis) SetTarPos(value *pb.TargetInfo) {
 }
 
 // get all positions by target name and timestamp
-func (r *Redis) GetAllTarPos(targetNames []string) []*pb.TargetInfo {
+func (r *Redis) GetAllTarPos(targetNames []string, minusTime int) []*pb.TargetInfo {
 	var pos []*pb.TargetInfo
 	time_now := time.Now().Unix()
 	r.m.Lock()
 	for _, name := range targetNames {
-		for ts := time_now; ts <= r.maxTimeStamp; ts++ {
+		for ts := time_now - int64(minusTime); ts <= r.maxTimeStamp; ts++ {
 			// key in format: "targetName-timestamp"
 			key := r.appendString(name, ts)
 
